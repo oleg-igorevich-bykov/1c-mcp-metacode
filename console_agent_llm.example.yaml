@@ -1,0 +1,77 @@
+default_profile: deepseek_fast
+
+endpoints:
+  openrouter:
+    title: OpenRouter
+    api_base: https://openrouter.ai/api/v1
+    api_key: put-openrouter-key-here
+    timeout: 180
+    # Optional. If omitted, CONSOLE_AGENT_LLM_PROXY is used as fallback.
+    # proxy: http://host.docker.internal:1080
+
+  deepseek:
+    title: DeepSeek API
+    api_base: https://api.deepseek.com
+    api_key: put-deepseek-key-here
+    timeout: 180
+    # proxy: http://host.docker.internal:1080
+
+  openai:
+    title: OpenAI
+    api_base: https://api.openai.com/v1
+    api_key: put-openai-key-here
+    timeout: 180
+    # proxy: http://host.docker.internal:1080
+
+  lm_studio:
+    title: LM Studio
+    api_base: http://host.docker.internal:1234/v1
+    api_key: lm-studio
+    timeout: 180
+    # Disable CONSOLE_AGENT_LLM_PROXY for this local endpoint.
+    proxy: false
+
+  litellm:
+    title: Local LiteLLM
+    api_base: http://host.docker.internal:4000/v1
+    api_key: put-litellm-key-here
+    timeout: 180
+    # Disable CONSOLE_AGENT_LLM_PROXY for this local endpoint.
+    proxy: false
+
+profiles:
+  deepseek_fast:
+    title: DeepSeek V4 Flash
+    endpoint: openrouter
+    model: deepseek/deepseek-v4-flash
+    temperature: 0.3
+
+  gpt_5_4_mini:
+    title: GPT 5.4 mini
+    endpoint: openai
+    model: gpt-5.4-mini
+    temperature: 0.3
+
+  deepseek_direct_flash:
+    title: DeepSeek V4 Flash direct
+    endpoint: deepseek
+    model: deepseek-v4-flash
+    temperature: 0.3
+
+  deepseek_direct_pro:
+    title: DeepSeek V4 Pro direct
+    endpoint: deepseek
+    model: deepseek-v4-pro
+    temperature: 0.3
+
+  lmstudio_local:
+    title: LM Studio local
+    endpoint: lm_studio
+    model: loaded-model-id
+    temperature: 0.3
+
+  local_big:
+    title: Local Big
+    endpoint: litellm
+    model: local-big
+    temperature: 0.3

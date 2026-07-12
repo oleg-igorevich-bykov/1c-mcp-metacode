@@ -1,131 +1,240 @@
 # 1C Metacode MCP Server
 
-Загружает метаданные и код конфигураций 1С в графовую базу данных и предоставляет инструменты MCP для запросов по графу.
+Загружает метаданные и код конфигураций 1С в графовую базу данных Neo4j и предоставляет инструменты
+MCP, веб-консоль и встроенного AI агента для анализа данных конфигурации.
 
-#### Основные возможности
+## Основные возможности
 
-- Загрузка всех метаданных конфигураций 1С в графовую базу Neo4j из отчета по конфигурации. 
-- Загрузка данных управляемых форм - реквизиты, элементы формы, события, команды. Привязка событий форм и элементов, команд к обработчикам.
-- Загрузка предопределенных значений и прав ролей.
-- Загрузка подписок на события и привязка к обработчикам.
-- Загрузка сигнатур процедур/функций из всех модулей (включая модуль формы обычных форм), формирование графа вызовов.
-- Загрузка описания и тела всех процедур и функций (включая модуль формы обычных форм) с полнотекстовым или гибридным поиском по описанию.
-- Широкая связность объектов метаданных: в реквизитах, в элементах управлениях формы, в регистрах накопления/сведений, в правах доступа. 
-- MCP инструменты: search_metadata, search_metadata_by_description, search_code 
-- Поддержка загрузки и поиска информации по несколким конфигурациям (проектам). При поиске не нужно указывать в каком проекте искать. Система автоматически фильтрует. 
-- Возможность осуществлять поиск как с помощью LLM (режим агента, который переводить запрос на естественом языке в cypher запрос), так и без LLM (поиск по шаблонам). Возможен так же гибридный режим. Большинство информации может быть найдено по шаблонам. 
+- Загрузка всех метаданных конфигураций 1С в граф Neo4j из отчёта по конфигурации (`.txt`) или прямо
+  из XML выгрузки.
+- Загрузка расширений 1С в один проект с базовой конфигурацией, со связями между ними и сравнением
+  объектов расширения с базовыми.
+- Загрузка данных управляемых форм: реквизиты, элементы, события, команды; привязка событий форм и
+  элементов, команд к обработчикам.
+- Загрузка предопределённых значений, прав ролей и подписок на события с привязкой к обработчикам.
+- Загрузка справки по объектам метаданных с полнотекстовым поиском объектов по справке и другим
+  описательным полям.
+- Загрузка сигнатур процедур/функций из всех модулей (включая модуль формы обычных форм) и построение
+  графа вызовов.
+- Загрузка тел процедур/функций (включая модуль формы обычных форм) с полнотекстовым, векторным и
+  гибридным поиском по описаниям.
+- Широкая связность объектов метаданных: в реквизитах, в элементах управления формы, в регистрах
+  накопления/сведений, в движениях документов по регистрам, в правах доступа.
+- Инкрементальная загрузка изменившихся данных по расписанию (метаданные и код).
+- Семантический поиск по **телу** кода BSL.
+- Генерация LLM-сводок по объектам метаданных и поиск объектов по этим сводкам.
+- Веб-консоль (просмотр метаданных, форм, кода, статистики) и встроенный AI агент.
+- Мультипроектность: несколько проектов (базовая конфигурация + расширения) одновременно; поиск
+  фильтруется по проекту автоматически, при этом из одного проекта можно обращаться к другим.
+- Ответы MCP-инструментов максимально сжимаются как с помощью формата TOON, так и собственной системой компактизации.
 
-
-#### Структура данных
+## Структура данных
 
 ```mermaid
 graph TB
-    %% Компактная вертикальная структура
-    Project(["Project<br/>Проект"]) -->|"contains"| Configuration(["Configuration<br/>Конфигурация"])
-    Configuration -->|"has"| MetadataCategory(["MetadataCategory<br/>Категория метаданных"])
-    MetadataCategory -->|"contains"| MetadataObject(["MetadataObject<br/>Объект метаданных"])
-    
-    %% Формы и интерфейс (левая колонка)
-    MetadataObject -->|"HAS_FORM"| Form(["Form<br/>Форма"])
-    Form -->|"HAS_CONTROL"| FormControl(["FormControl<br/>Элемент формы"])
-    Form -->|"HAS_EVENT"| FormEvent(["FormEvent<br/>Событие формы"])
-    Form -->|"HAS_FORM_ATTRIBUTE"| FormAttribute(["FormAttribute<br/>Атрибут формы"])
-    FormControl -->|"HAS_EVENT"| FormControlEvent(["FormEvent<br/>Событие элемента"])
-    FormEvent -->|"HAS_HANDLER"| EventHandler(["Routine<br/>Обработчик события"])
-    FormControlEvent -->|"HAS_HANDLER"| ControlEventHandler(["Routine<br/>Обработчик события"])
-    
-    %% Данные и атрибуты (правая колонка)
-    MetadataObject -->|"HAS_ATTRIBUTE"| Attribute(["Attribute<br/>Атрибут"])
-    MetadataObject -->|"HAS_TABULAR_PART"| TabularPart(["TabularPart<br/>Табличная часть"])
-    MetadataObject -->|"HAS_RESOURCE"| Resource(["Resource<br/>Ресурс"])
-    MetadataObject -->|"HAS_DIMENSION"| Dimension(["Dimension<br/>Измерение"])
-    TabularPart -->|"HAS_ATTRIBUTE"| TabularAttribute(["Attribute<br/>Атрибут табл. части"])
-    
-    %% Связи и зависимости (нижняя секция)
-    MetadataObject -->|"USED_IN"| UsedInTarget(["Target Object<br/>Целевой объект"])
-    MetadataObject -->|"DO_MOVEMENTS_IN"| RegisterObject(["Register<br/>Регистр"])
-    MetadataObject -->|"GRANTS_ACCESS_TO"| AccessTarget(["Access Target<br/>Цель доступа"])
-    
-    %% Модули и код (вертикальная цепочка)
-    MetadataObject -->|"HAS_MODULE"| Module(["Module<br/>Модуль"])
-    Module -->|"DECLARES"| Routine(["Routine<br/>Процедура/Функция"])
-    Routine -->|"CALLS"| CalledRoutine(["Called Routine<br/>Вызываемая процедура"])
-    
-    %% Дополнительные компоненты (компактно)
-    MetadataObject -->|"HAS_COMMAND"| Command(["Command<br/>Команда"])
-    MetadataObject -->|"HAS_URL_TEMPLATE"| UrlTemplate(["UrlTemplate<br/>Шаблон URL"])
-    MetadataObject -->|"HAS_EVENT_SUBSCRIPTION"| EventSubscription(["EventSubscription<br/>Подписка на событие"])
-    MetadataObject -->|"HAS_PREDEFINED"| PredefinedItem(["PredefinedItem<br/>Предопределенный элемент"])
-    
-    %% Связи HTTP и форм (компактно)
-    UrlTemplate -->|"HAS_URL_METHOD"| UrlMethod(["UrlMethod<br/>Метод URL"])
-    UrlMethod -->|"HAS_HANDLER"| UrlHandler(["Routine<br/>Обработчик HTTP"])
-    FormControl -->|"BINDS_TO"| BindTarget(["Bind Target<br/>Цель связывания"])
-    FormControl -->|"LINKS_TO_COMMAND"| LinkedCommand(["Command<br/>Команда"])
-    
-    %% Новые добавления: дополнительные сущности и связи
-    MetadataObject -->|"HAS_LAYOUT"| Layout(["Layout<br/>Макет"])
-    MetadataObject -->|"HAS_CHARACTERISTIC"| Characteristic(["Characteristic<br/>Характеристика"])
-    MetadataObject -->|"HAS_ENUM_VALUE"| EnumValue(["EnumValue<br/>ЗначениеПеречисления"])
-    MetadataObject -->|"HAS_GRAPH"| JournalGraph(["JournalGraph<br/>Граф журнала"])
-    MetadataObject -->|"HAS_ACCOUNTING_FLAG"| AccountingFlag(["AccountingFlag<br/>ПризнакУчета"])
-    MetadataObject -->|"HAS_DIMENSION_ACCOUNTING_FLAG"| DimensionAccountingFlag(["DimensionAccountingFlag<br/>ПризнакУчетаСубконто"])
-    MetadataObject -->|"CONTAINS_OBJECT"| SubsystemChild(["MetadataObject<br/>Дочерний объект<br/>(подсистемы)"])
-    PredefinedItem -->|"HAS_CHILD"| PredefinedChild(["PredefinedItem<br/>Дочерний элемент"])
-    FormControl -->|"HAS_CHILD"| FormControlChild(["FormControl<br/>Дочерний элемент"])
-    Form -->|"HAS_COMMAND"| FormCommand(["Command<br/>Команда формы"])
-    EventSubscription -->|"HAS_HANDLER"| EventSubHandler(["Routine<br/>Обработчик подписки"])
-    Command -->|"HAS_HANDLER"| CommandHandler(["Routine<br/>Обработчик команды"])
-    FormCommand -->|"HAS_HANDLER"| FormCommandHandler(["Routine<br/>Обработчик команды формы"])
-    
-    %% Уникальные стили для каждого типа узла (упрощено, без лишних подтипов)
-    classDef projectClass fill:#FF6B6B,stroke:#C92A2A,stroke-width:2px,color:#FFFFFF
-    classDef configClass fill:#4ECDC4,stroke:#26A69A,stroke-width:2px,color:#FFFFFF
-    classDef categoryClass fill:#45B7D1,stroke:#1976D2,stroke-width:2px,color:#FFFFFF
-    classDef objectClass fill:#96CEB4,stroke:#388E3C,stroke-width:2px,color:#FFFFFF
+    %% Иерархия: проект = базовая конфигурация + расширения
+    Project(["Project<br/>Проект"]) -->|"HAS_CONFIGURATION"| Configuration(["Configuration<br/>Базовая конфигурация"])
+    Project -->|"HAS_CONFIGURATION"| ExtConfiguration(["Configuration<br/>Конфигурация расширения<br/>(is_extension)"])
+    ExtConfiguration -->|"EXTENDS"| Configuration
+    Configuration -->|"HAS_CATEGORY"| MetadataCategory(["MetadataCategory<br/>Категория метаданных"])
+
+    subgraph g_core [" "]
+        MetadataObject(["MetadataObject<br/>Объект метаданных"])
+        Role(["MetadataObject<br/>Роль"])
+        Role -->|"GRANTS_ACCESS_TO"| MetadataObject
+    end
+    MetadataCategory -->|"CONTAINS_OBJECT"| MetadataObject
+    MetadataCategory -->|"CONTAINS_OBJECT"| Role
+
+    %% Данные и атрибуты
+    subgraph g_data [" "]
+        Attribute(["Attribute<br/>Атрибут"])
+        TabularPart(["TabularPart<br/>Табличная часть"])
+        TabularAttribute(["Attribute<br/>Атрибут табл. части"])
+        Resource(["Resource<br/>Ресурс"])
+        Dimension(["Dimension<br/>Измерение"])
+        TabularPart -->|"HAS_ATTRIBUTE"| TabularAttribute
+    end
+    MetadataObject -->|"HAS_ATTRIBUTE"| Attribute
+    MetadataObject -->|"HAS_TABULAR_PART"| TabularPart
+    MetadataObject -->|"HAS_RESOURCE"| Resource
+    MetadataObject -->|"HAS_DIMENSION"| Dimension
+
+    %% Дополнительные сущности объекта
+    subgraph g_child [" "]
+        Layout(["Layout<br/>Макет"])
+        Characteristic(["Characteristic<br/>Характеристика"])
+        EnumValue(["EnumValue<br/>Значение перечисления"])
+        JournalGraph(["JournalGraph<br/>Граф журнала"])
+        AccountingFlag(["AccountingFlag<br/>Признак учёта"])
+        DimensionAccountingFlag(["DimensionAccountingFlag<br/>Признак учёта субконто"])
+        PredefinedItem(["PredefinedItem<br/>Предопределённый элемент"])
+        PredefinedChild(["PredefinedItem<br/>Дочерний элемент"])
+        SubsystemChild(["MetadataObject<br/>Дочерний объект<br/>(подсистемы)"])
+        PredefinedItem -->|"HAS_CHILD"| PredefinedChild
+    end
+    MetadataObject -->|"HAS_LAYOUT"| Layout
+    MetadataObject -->|"HAS_CHARACTERISTIC"| Characteristic
+    MetadataObject -->|"HAS_ENUM_VALUE"| EnumValue
+    MetadataObject -->|"HAS_GRAPH"| JournalGraph
+    MetadataObject -->|"HAS_ACCOUNTING_FLAG"| AccountingFlag
+    MetadataObject -->|"HAS_DIMENSION_ACCOUNTING_FLAG"| DimensionAccountingFlag
+    MetadataObject -->|"HAS_PREDEFINED"| PredefinedItem
+    MetadataObject -->|"CONTAINS_OBJECT"| SubsystemChild
+
+    %% Использование и движения
+    subgraph g_usage [" "]
+        UsedInTarget(["Target Object<br/>Целевой объект"])
+        RegisterObject(["Register<br/>Регистр"])
+    end
+    MetadataObject -->|"USED_IN"| UsedInTarget
+    MetadataObject -->|"DO_MOVEMENTS_IN"| RegisterObject
+
+    %% Формы и интерфейс
+    subgraph g_form [" "]
+        Form(["Form<br/>Форма"])
+        FormControl(["FormControl<br/>Элемент формы"])
+        FormControlChild(["FormControl<br/>Дочерний элемент"])
+        FormControlEvent(["FormEvent<br/>Событие элемента"])
+        FormEvent(["FormEvent<br/>Событие формы"])
+        FormAttribute(["FormAttribute<br/>Атрибут формы"])
+        FormEventAction(["FormEventAction<br/>Действие события"])
+        FormCommand(["Command<br/>Команда формы"])
+        EventHandler(["Routine<br/>Обработчик события"])
+        ControlEventHandler(["Routine<br/>Обработчик события"])
+        FormCommandHandler(["Routine<br/>Обработчик команды формы"])
+        BindTarget(["Bind Target<br/>Цель связывания"])
+        LinkedCommand(["Command<br/>Команда"])
+        Form -->|"HAS_CONTROL"| FormControl
+        Form -->|"HAS_EVENT"| FormEvent
+        Form -->|"HAS_FORM_ATTRIBUTE"| FormAttribute
+        Form -->|"HAS_COMMAND"| FormCommand
+        FormControl -->|"HAS_CHILD"| FormControlChild
+        FormControl -->|"HAS_EVENT"| FormControlEvent
+        FormControl -->|"LINKS_TO_COMMAND"| LinkedCommand
+        FormEvent -->|"HAS_EVENT_ACTION"| FormEventAction
+        FormEvent -->|"HAS_HANDLER"| EventHandler
+        FormControlEvent -->|"HAS_HANDLER"| ControlEventHandler
+        FormCommand -->|"HAS_HANDLER"| FormCommandHandler
+    end
+    MetadataObject -->|"HAS_FORM"| Form
+    FormControl -->|"BINDS_TO"| BindTarget
+
+    %% Команды, HTTP, подписки
+    subgraph g_cmd [" "]
+        Command(["Command<br/>Команда"])
+        UrlTemplate(["UrlTemplate<br/>Шаблон URL"])
+        UrlMethod(["UrlMethod<br/>Метод URL"])
+        UrlHandler(["Routine<br/>Обработчик HTTP"])
+        EventSubscription(["EventSubscription<br/>Подписка на событие"])
+        EventSubHandler(["Routine<br/>Обработчик подписки"])
+        CommandHandler(["Routine<br/>Обработчик команды"])
+        UrlTemplate -->|"HAS_URL_METHOD"| UrlMethod
+        UrlMethod -->|"HAS_HANDLER"| UrlHandler
+        EventSubscription -->|"USES_HANDLER"| EventSubHandler
+        Command -->|"HAS_HANDLER"| CommandHandler
+    end
+    MetadataObject -->|"HAS_COMMAND"| Command
+    MetadataObject -->|"HAS_URL_TEMPLATE"| UrlTemplate
+    MetadataObject -->|"HAS_EVENT_SUBSCRIPTION"| EventSubscription
+
+    %% Модули и код
+    subgraph g_code [" "]
+        Module(["Module<br/>Модуль"])
+        Routine(["Routine<br/>Процедура/Функция"])
+        CalledRoutine(["Called Routine<br/>Вызываемая процедура"])
+        RoutineCodeUnit(["RoutineCodeUnit<br/>Единица кода"])
+        Module -->|"DECLARES"| Routine
+        Routine -->|"CALLS"| CalledRoutine
+        Routine -->|"HAS_CODE_UNIT"| RoutineCodeUnit
+        RoutineCodeUnit -->|"OF_ROUTINE"| Routine
+    end
+    MetadataObject -->|"HAS_MODULE"| Module
+
+    %% Расширения 1С: содержимое расширения ↔ базовые объекты
+    subgraph g_ext [" "]
+        ExtCat(["MetadataCategory<br/>Категория (расширение)"])
+        ExtObject(["MetadataObject<br/>Объект расширения"])
+        ExtForm(["Form<br/>Форма расширения"])
+        ExtAction(["FormEventAction<br/>Действие расширения"])
+        ExtModule(["Module<br/>Модуль расширения"])
+        ExtRoutine(["Routine<br/>Процедура расширения"])
+        ExtCat -->|"CONTAINS_OBJECT"| ExtObject
+        ExtObject -->|"HAS_FORM"| ExtForm
+        ExtObject -->|"HAS_MODULE"| ExtModule
+        ExtModule -->|"DECLARES"| ExtRoutine
+        ExtForm -->|"HAS_EVENT_ACTION"| ExtAction
+    end
+    ExtConfiguration -->|"HAS_CATEGORY"| ExtCat
+    ExtObject -->|"ADOPTED_FROM"| MetadataObject
+    ExtForm -->|"ADOPTED_FROM"| Form
+    ExtModule -->|"EXTENDS_MODULE"| Module
+    ExtRoutine -->|"EXTENDS_ROUTINE"| Routine
+    ExtAction -->|"EXTENDS_ACTION"| FormEventAction
+
+    style g_ext fill:none,stroke:none
+
+    style g_core fill:none,stroke:none
+    style g_data fill:none,stroke:none
+    style g_child fill:none,stroke:none
+    style g_usage fill:none,stroke:none
+    style g_form fill:none,stroke:none
+    style g_cmd fill:none,stroke:none
+    style g_code fill:none,stroke:none
+
+    %% Стили узлов
+    classDef projectClass fill:#FF6B6B,stroke:#C92A2A,stroke-width:2px,color:#000000
+    classDef configClass fill:#4ECDC4,stroke:#26A69A,stroke-width:2px,color:#000000
+    classDef categoryClass fill:#45B7D1,stroke:#1976D2,stroke-width:2px,color:#000000
+    classDef objectClass fill:#96CEB4,stroke:#388E3C,stroke-width:2px,color:#000000
     classDef formClass fill:#FFEAA7,stroke:#FD8D3C,stroke-width:2px,color:#000000
-    classDef formControlClass fill:#AED6F1,stroke:#3498DB,stroke-width:2px,color:#FFFFFF
-    classDef formEventClass fill:#FF69B4,stroke:#C2185B,stroke-width:2px,color:#FFFFFF
+    classDef formControlClass fill:#AED6F1,stroke:#3498DB,stroke-width:2px,color:#000000
+    classDef formEventClass fill:#FF69B4,stroke:#C2185B,stroke-width:2px,color:#000000
     classDef formAttrClass fill:#A3E4D7,stroke:#1ABC9C,stroke-width:2px,color:#000000
-    classDef attributeClass fill:#85C1E9,stroke:#2980B9,stroke-width:2px,color:#FFFFFF
+    classDef formEventActionClass fill:#F5B7B1,stroke:#E74C3C,stroke-width:2px,color:#000000
     classDef tabularClass fill:#F7DC6F,stroke:#F39C12,stroke-width:2px,color:#000000
     classDef resourceClass fill:#F8C471,stroke:#E67E22,stroke-width:2px,color:#000000
-    classDef dimensionClass fill:#82E0AA,stroke:#27AE60,stroke-width:2px,color:#FFFFFF
+    classDef dimensionClass fill:#82E0AA,stroke:#27AE60,stroke-width:2px,color:#000000
     classDef targetClass fill:#CACFD2,stroke:#7F8C8D,stroke-width:2px,color:#000000
-    classDef moduleClass fill:#98D8C8,stroke:#16A085,stroke-width:2px,color:#FFFFFF
-    classDef routineClass fill:#F1948A,stroke:#E74C3C,stroke-width:2px,color:#FFFFFF
-    classDef commandClass fill:#E1BEE7,stroke:#9C27B0,stroke-width:2px,color:#FFFFFF
+    classDef moduleClass fill:#98D8C8,stroke:#16A085,stroke-width:2px,color:#000000
+    classDef routineClass fill:#F1948A,stroke:#E74C3C,stroke-width:2px,color:#000000
+    classDef codeUnitClass fill:#D7BDE2,stroke:#8E44AD,stroke-width:2px,color:#000000
+    classDef commandClass fill:#E1BEE7,stroke:#9C27B0,stroke-width:2px,color:#000000
     classDef urlTemplateClass fill:#F9E79F,stroke:#F1C40F,stroke-width:2px,color:#000000
-    classDef urlMethodClass fill:#D98880,stroke:#CD6155,stroke-width:2px,color:#FFFFFF
-    classDef eventSubClass fill:#AEB6BF,stroke:#5D6D7E,stroke-width:2px,color:#FFFFFF
-    classDef predefinedClass fill:#BB8FCE,stroke:#8E44AD,stroke-width:2px,color:#FFFFFF
+    classDef urlMethodClass fill:#D98880,stroke:#CD6155,stroke-width:2px,color:#000000
+    classDef eventSubClass fill:#AEB6BF,stroke:#5D6D7E,stroke-width:2px,color:#000000
+    classDef predefinedClass fill:#BB8FCE,stroke:#8E44AD,stroke-width:2px,color:#000000
     classDef bindTargetClass fill:#D5DBDB,stroke:#BDC3C7,stroke-width:2px,color:#000000
     classDef layoutClass fill:#F0E68C,stroke:#DAA520,stroke-width:2px,color:#000000
     classDef characteristicClass fill:#DEB887,stroke:#CD853F,stroke-width:2px,color:#000000
-    classDef enumValueClass fill:#FFA07A,stroke:#FF6347,stroke-width:2px,color:#FFFFFF
-    classDef journalGraphClass fill:#20B2AA,stroke:#008B8B,stroke-width:2px,color:#FFFFFF
-    classDef accountingFlagClass fill:#87CEEB,stroke:#4682B4,stroke-width:2px,color:#FFFFFF
-    classDef dimensionAccountingFlagClass fill:#DDA0DD,stroke:#BA55D3,stroke-width:2px,color:#FFFFFF
-    classDef subsystemChildClass fill:#A8E6CF,stroke:#3D9970,stroke-width:2px,color:#FFFFFF
-    classDef formControlChildClass fill:#B3E5FC,stroke:#03A9F4,stroke-width:2px,color:#FFFFFF
-    classDef tabularAttributeClass fill:#90CAF9,stroke:#2196F3,stroke-width:2px,color:#FFFFFF
-    
-    %% Применение цветов (упрощено)
+    classDef enumValueClass fill:#FFA07A,stroke:#FF6347,stroke-width:2px,color:#000000
+    classDef journalGraphClass fill:#20B2AA,stroke:#008B8B,stroke-width:2px,color:#000000
+    classDef accountingFlagClass fill:#87CEEB,stroke:#4682B4,stroke-width:2px,color:#000000
+    classDef dimensionAccountingFlagClass fill:#DDA0DD,stroke:#BA55D3,stroke-width:2px,color:#000000
+    classDef subsystemChildClass fill:#A8E6CF,stroke:#3D9970,stroke-width:2px,color:#000000
+    classDef formControlChildClass fill:#B3E5FC,stroke:#03A9F4,stroke-width:2px,color:#000000
+    classDef tabularAttributeClass fill:#90CAF9,stroke:#2196F3,stroke-width:2px,color:#000000
+    classDef roleClass fill:#F1948A,stroke:#922B21,stroke-width:2px,color:#000000
+    classDef extClass fill:#FAD7A0,stroke:#B9770E,stroke-width:2px,color:#000000
+
+    %% Применение стилей
     class Project projectClass
     class Configuration configClass
     class MetadataCategory categoryClass
     class MetadataObject,SubsystemChild subsystemChildClass
     class Form formClass
     class FormControl,FormControlChild formControlChildClass
-    class FormEvent formEventClass
+    class FormEvent,FormControlEvent formEventClass
     class FormAttribute formAttrClass
+    class FormEventAction formEventActionClass
     class Attribute,TabularAttribute tabularAttributeClass
     class TabularPart tabularClass
     class Resource resourceClass
     class Dimension dimensionClass
-    class UsedInTarget,RegisterObject,AccessTarget targetClass
+    class UsedInTarget,RegisterObject targetClass
     class Module moduleClass
     class Routine,CalledRoutine,EventHandler,ControlEventHandler,UrlHandler,EventSubHandler,CommandHandler,FormCommandHandler routineClass
+    class RoutineCodeUnit codeUnitClass
     class Command,FormCommand,LinkedCommand commandClass
     class UrlTemplate urlTemplateClass
     class UrlMethod urlMethodClass
@@ -138,155 +247,96 @@ graph TB
     class JournalGraph journalGraphClass
     class AccountingFlag accountingFlagClass
     class DimensionAccountingFlag dimensionAccountingFlagClass
-
+    class Role roleClass
+    class ExtConfiguration,ExtCat,ExtObject,ExtForm,ExtModule,ExtRoutine,ExtAction extClass
 ```
 
+## Быстрый старт
 
-#### Быстрый старт
+Требуется Docker и Docker Compose; свободные порты 7474/7687 (Neo4j) и 6001 (MCP-сервер и веб-консоль).
 
-- Docker и Docker Compose
-- Свободные порты 7474/7687 (Neo4j) и 6001 (MCP)
+1. Скопируйте `.env.example.minimal` в `.env` (минимальный набор для старта; полный список — в
+   `.env.example`) и задайте как минимум `NEO4J_PASSWORD` и `PROJECT_NAME`.
+2. Скопируйте `docker-compose.example.yml` в `docker-compose.yml`, задайте `PROJECT_NAME` (и порт для
+   каждого проекта при мультипроекте).
+3. Разместите данные: `data/prj1/metadata` (отчёт по конфигурации `.txt`), `data/prj1/code`
+   (XML-выгрузка), при необходимости `data/prj1/extensions/<ExtName>`.
+4. Запустите:
 
-1. Подготовьте .env
-
-   Скопируйте пример и заполните значения (минимум пароль Neo4j):
-   
-   Обязательно задайте пароль Neo4j
-    NEO4J_PASSWORD=...
-   
-   В файле .env указываются значение, которые общие для всех контейнеров. 
-   Значения, которые различаются для каждого контейнера лучше указывать непосредственно в docker-compose.yml
-
-
-2. Подготовьте docker-compose.yml
-
-   Скопируйте пример docker-compose.example.yml в туже папку где у вас файл .env и переименуйте в docker-compose.yml 
-   
-   Задайте PROJECT_NAME в сервисе 1c-metacode-prj1 (можно переименовать название сервиса как нравится) 
-   Если у вас только один проект, то второй сервис 1c-metacode-prj2 можно удалить полностью
-   Если нужно больше двух то продублируйте секцию сервиса и обязательно задайте  другой порт на хосте ( меняем только первый порт в этой строке "6001:6001")  и другой PROJECT_NAME
-
-
-3. Разместите данные
-
-   В корне папки где располагаются файлы .env и docker-compose.yml  создайте структуру для монтирования в контейнер:
-   
-   - ./data/prj1/metadata — Выгрузка отчет по конфигурации в формате .txt (в папке должен быть только один txt файл). В конфигураторе Конфигурация -> Отчет по конфигурации (в текстовый файл, Вся конфигурация)
-   - ./data/prj1/code — Выгрузка конфигурации в файлы. В конфигураторе Конфигурация -> Выгрузить конфигурацию в файлы (XML-файлы)
-   
-   Аналогично по другим проектам:
-   
-   - ./data/prj2/metadata 
-   - ./data/prj2/code
-
-4. Запуск
-
-```
+```bash
 docker compose up -d
 ```
 
-#### Сервисы
+Подробная инструкция — в [docs/setup.md](docs/setup.md).
 
-- Neo4j: http://localhost:7474 (логин neo4j / пароль из NEO4J_PASSWORD)
-- Bolt: bolt://localhost:7687
-- MCP сервер: http://localhost:6001/mcp (и другие порты, указанные в docker-compose.yml)
+## Обновление
 
-#### Логи приложения
-
-```
-docker compose logs -f 1c-metacode-prj1
+```bash
+docker compose pull
+docker compose up -d --force-recreate
 ```
 
-#### Первичный запуск
+Полный сброс с удалением базы:
 
-- Приложение создаст индексы в Neo4j
-- Проведёт загрузку метаданных из ./data/metadata/*.txt
-- При включённых флагах — просканирует ./data/code и догрузит формы, предопределённые значения, права, подписки на события, модули с процедурами и функциями
-- Загрузка всех данных (без векторной индексации) занимает около 30 минут для типовой конфигурации Бухгалтерия (может увеличиться если слабый компьютер)
-- При включенной векторной индексации она запускается в фоне, после загрузки всех данных. MCP сервер во время векторной индексации доступен для запросов. 
-- Векторная индексация описаний метадананных и процедур/функций занимает около 30 минут для типовой конфигурации Бухгалтерия с использованием модели Qwen3-Embedding-4B_Q8  на 5070Ti   
-- Для загрузки требуется оперативной памяти из расчета 4 ГБ для Neo4j  и по 6 ГБ на каждую одновременно загружаемую базу. После загрузки потребление памяти значительно снижается.  
-
-#### Обновление/перезагрузка данных
-
-- Для полной перезагрузки данных проекта установите в docker-compose.yml переменную для соответсвующего проекта и перезапустите контейнер:
-
-```
-FULL_METADATA_RELOAD=true
-docker compose restart 1c-metacode-prj1
+```bash
+docker compose down --volumes
+docker compose up -d --force-recreate
 ```
 
-#### Инструменты MCP
+## Сервисы
 
-Сервер публикует 3 инструмента:
-- `search_metadata` — Поиск объектов метаданных по их структурным свойствам, связям, техническим характеристикам и отношениям.
-- `search_metadata_by_description` — Поиск объектов метаданных по их семантическому содержанию, используя описания, комментарии, синонимы и внутренние имена.
-- `search_code` — Семантический поиск процедур и функций по их описаниям и получение исходного кода BSL.
+- **Neo4j Browser** — http://localhost:7474 (логин `neo4j`, пароль из `NEO4J_PASSWORD`)
+- **Bolt** — `bolt://localhost:7687`
+- **MCP-сервер** — http://localhost:6001/mcp (порт зависит от проекта)
+- **Веб-консоль** — http://localhost:6001/console (при `WEB_CONSOLE_ENABLED=true`). Токен передаётся в
+  URL: для админа `http://localhost:6001/console?admin_token=<WEB_CONSOLE_ADMIN_TOKEN>`, для
+  пользователя `?user_token=<токен>`.
 
-Более подробно в **[Описание возможностей MCP сервера](./MCP_SERVER_CAPABILITIES.md)**
+Логи приложения:
 
-Транспорт:
-- По умолчанию streamable-http (HTTP путь /mcp)
-- При MCP_USE_SSE=true — SSE-режим
-
-Подключение клиентов
-Используйте любой MCP-совместимый клиент (например, IDE/агенты с поддержкой OpenAI MCP). Укажите:
-- transport: streamable-http или sse
-- endpoint: http://localhost:6001/mcp
-
-Пример mcp.json для Cline
-
+```bash
+docker compose logs -f <имя-сервиса>
 ```
+
+## Подключение MCP-клиента
+
+Транспорт по умолчанию — streamable-http (при `MCP_USE_SSE=true` — SSE). Пример конфигурации клиента:
+
+```json
 {
   "mcpServers": {
     "1c-metacode": {
       "url": "http://localhost:6001/mcp",
-      "connection_id": "1c_metacode_service_001",
-      "alwaysAllow": [],
       "type": "streamable-http",
       "timeout": 300
-      
     }
   }
 }
 ```
 
-#### Обновление 
+Список и назначение инструментов — в [docs/mcp-tools.md](docs/mcp-tools.md).
 
-Для обновления на новую версию приложения 
+## Документация
 
-```
-docker compose pull
-docker compose down --volumes
-docker compose up -d --force-recreate
-```
+| Документ | О чём |
+|----------|-------|
+| [docs/architecture.md](docs/architecture.md) | архитектура, модель графа, где что хранится |
+| [docs/setup.md](docs/setup.md) | установка, запуск, обслуживание |
+| [docs/loading-and-updates.md](docs/loading-and-updates.md) | загрузка данных, флаги, инкрементальное обновление |
+| [docs/mcp-tools.md](docs/mcp-tools.md) | справочник инструментов MCP |
+| [docs/search.md](docs/search.md) | режимы поиска и как их выбирать |
+| [docs/bsl-code-search.md](docs/bsl-code-search.md) | семантический поиск по телу кода BSL |
+| [docs/bsl-code-search-benchmark.md](docs/bsl-code-search-benchmark.md) | бенчмарк режимов поиска по коду BSL |
+| [docs/object-summary.md](docs/object-summary.md) | LLM-сводки объектов и поиск по ним |
+| [docs/web-console.md](docs/web-console.md) | веб-консоль |
+| [docs/console-agent.md](docs/console-agent.md) | встроенный AI агент |
+| [docs/extensions.md](docs/extensions.md) | расширения 1С |
 
-Если нужно начать всё с нуля и удалить полностью базу то выполните
+Полный перечень переменных окружения с дефолтами и комментариями — в `.env.example`.
 
-```
-docker compose down --volumes
-docker compose up -d --force-recreate
-```
+## Changelog
 
-#### Changelog
+Последние изменения — v2.0.0 (2026-07-07): поддержка расширений 1С, семантический поиск по коду BSL,
+AI-сводки объектов, веб-консоль со встроенным агентом, инкрементальная загрузка, загрузка из XML-дампа.
 
-##### v1.3.0 - 2025-10-29
-- Добавлена поддержка загрузки процедур/функций из модуля формы обычных форм (файлы Form.bin). 
-- Улучшена скорость загрузки (примерно в 2 раза) путем распараллеливания процесса загрузки на несколько ядер.
-- Добавлена векторная индексация описаний процедур/функций, описаний метаданных, а так же гибридный поиск по этим описаниям. 
-
-##### v1.2.0 - 2025-10-20
-- Добавлена загрузка тела процедур и функций, а также их описаний (комментарии над сигнатурой). 
-- Возможность полнотекстового поиска процедур и функций по описанию. 
-- Возможность получения тела процедуры/функции прямо из графовой базы. 
-- Добавлена поддержка загрузки справки по объектам метаданным с возможностью полнотекстового поиска объектов метаданных по этой справке, а так же по другим описательным полям. 
-
-##### v1.1.0 - 2025-10-07
-- Добавлена поддержка загрузки подписок на события
-- Добавлена поддержка загрузки модулей с процедурами/функциями и формирования графа вызовов
-
-##### v1.0.0 - 2025-09-30
-- Первоначальный релиз с загрузкой метаданных 1С в Neo4j
-- Поддержка MCP инструментов для поиска метаданных
-
-
+Полная история версий — в [CHANGELOG.md](CHANGELOG.md).

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1C Metacode Console</title>
+  <link rel="icon" type="image/png" href="__CONSOLE_PATH__/static/icons/Metacode_console_logo_small.png">
+  <link rel="stylesheet" href="__CONSOLE_PATH__/static/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-row">
+      <h1 id="app-title" class="app-title">
+        <img class="app-logo" src="__CONSOLE_PATH__/static/icons/Metacode_console_logo_small.png"
+             alt="Metacode Console">
+        <span class="app-title-text">
+          <span>1C Metacode Console</span>
+          <a class="app-repo-link" href="https://github.com/ROCTUP/1c-mcp-metacode"
+             target="_blank" rel="noopener noreferrer">ROCTUP/1c-mcp-metacode</a>
+        </span>
+      </h1>
+      <nav class="top-nav" aria-label="Main">
+        <a id="nav-system" class="nav-link" href="__CONSOLE_PATH__/system">Система</a>
+        <a id="nav-analysis" class="nav-link" href="__CONSOLE_PATH__/analysis">Анализ</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section id="system-page" class="page">
+      <div class="page-header">
+        <p id="system-summary" class="subtitle"></p>
+        <div class="system-status-row">
+          <div id="badges" class="badges"></div>
+        </div>
+      </div>
+
+      <div id="error-box" class="error-box" hidden></div>
+
+      <section id="data-stats-section" class="data-stats-section" aria-labelledby="data-stats-title">
+        <div class="data-stats-header">
+          <h2 id="data-stats-title">Статистика данных</h2>
+          <span id="updated" class="updated"></span>
+          <button id="stats-refresh-btn" class="stats-refresh-btn" type="button"
+                  title="Обновить статистику" aria-label="Обновить статистику">↻</button>
+        </div>
+        <div id="stats-grid" class="stats-grid"></div>
+      </section>
+
+      <section id="runtime-usage-section" class="runtime-usage-section" aria-labelledby="runtime-usage-title"></section>
+
+      <section id="mcp-tools-section" class="mcp-tools-section" aria-labelledby="mcp-tools-title"></section>
+
+      <section id="console-users-section" class="console-users-section" aria-labelledby="console-users-title"></section>
+    </section>
+
+    <section id="analysis-page" class="page" hidden>
+      <div id="analysis-error" class="error-box" hidden></div>
+
+      <div class="analysis-workspace">
+        <aside class="analysis-panel tree-panel">
+          <div class="analysis-search-row">
+            <input id="analysis-filter" class="analysis-search" type="search" placeholder="Найти в структуре">
+            <button id="analysis-search-settings" class="search-settings-button" type="button"
+                    title="Параметры поиска" aria-label="Параметры поиска">⚙</button>
+          </div>
+          <div id="analysis-tree" class="tree-view"></div>
+        </aside>
+
+        <div id="tree-resizer" class="tree-resizer" aria-hidden="true"></div>
+
+        <section class="analysis-panel detail-panel">
+          <button id="detail-toggle" class="panel-icon-button detail-toggle" type="button"
+                  aria-expanded="true" title="Свернуть детали">‹</button>
+          <div id="analysis-detail" class="analysis-detail"></div>
+        </section>
+
+        <div id="agent-resizer" class="agent-resizer" aria-hidden="true"></div>
+
+        <aside class="analysis-panel agent-panel">
+          <div class="panel-header">
+            <h3 class="agent-title" aria-label="Агент Метакод">
+              <img class="agent-title-logo" src="__CONSOLE_PATH__/static/icons/Metacode_agent_logo6_small.png"
+                   alt="" aria-hidden="true">
+            </h3>
+            <div class="agent-header-actions">
+              <div id="agent-model-dropdown" class="agent-model-dropdown hidden">
+                <button id="agent-model-button" class="agent-model-button" type="button"
+                        title="Модель агента" aria-label="Модель агента" aria-haspopup="listbox"
+                        aria-expanded="false">
+                  <span id="agent-model-label" class="agent-model-label">Модель</span>
+                  <span class="agent-model-caret" aria-hidden="true"></span>
+                </button>
+                <div id="agent-model-menu" class="agent-model-menu hidden" role="listbox"
+                     aria-label="Модель агента"></div>
+              </div>
+              <button id="agent-chat-list" class="panel-icon-button" type="button"
+                      title="Чаты" aria-label="Чаты" aria-expanded="false">☰</button>
+              <button id="agent-new-chat" class="panel-icon-button" type="button"
+                      title="Новый чат" aria-label="Новый чат">+</button>
+              <button id="agent-toggle" class="panel-icon-button agent-toggle" type="button"
+                      aria-expanded="true" title="Свернуть агента">›</button>
+            </div>
+          </div>
+          <div id="agent-chat-popover" class="agent-chat-popover hidden"></div>
+          <div id="agent-body" class="agent-body"></div>
+          <div id="agent-command-menu" class="agent-command-menu hidden" aria-label="Команды агента">
+            <button type="button" data-agent-action="overview">Объясни</button>
+            <button type="button" data-agent-action="usages">Использования</button>
+            <button type="button" data-agent-action="access">Права</button>
+            <button type="button" data-agent-action="form">Форма</button>
+            <button type="button" data-agent-action="module">Модуль</button>
+          </div>
+          <form id="agent-form" class="agent-input-row">
+            <div class="agent-input-shell">
+              <button id="agent-command-trigger" class="agent-command-trigger" type="button"
+                      title="Команды" aria-label="Команды" aria-expanded="false">/</button>
+              <textarea id="agent-input" class="agent-input" rows="1" placeholder="Сообщение" autocomplete="off" disabled></textarea>
+              <button id="agent-send" class="agent-send" type="submit" title="Отправить" aria-label="Отправить">
+                <svg class="agent-send-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true">
+                  <path d="M12 19V5"></path>
+                  <path d="M5 12l7-7 7 7"></path>
+                </svg>
+                <svg class="agent-stop-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true">
+                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+              </button>
+            </div>
+          </form>
+          <div id="agent-format-menu" class="agent-format-menu hidden">
+            <button type="button" class="agent-format-btn" data-format="bsl">BSL</button>
+            <button type="button" class="agent-format-btn" data-format="xml">XML</button>
+          </div>
+          <div class="agent-input-meta">
+            <label class="agent-context-toggle" title="Передавать агенту:
+• текущую страницу
+• выбранный объект или модуль
+• раздел объекта
+• активную вкладку
+• строку поиска
+
+Выключите, если вопрос не должен быть связан с текущим выбором.">
+              <input id="agent-send-context" type="checkbox" checked>
+              <span>Контекст страницы</span>
+            </label>
+            <div id="agent-token-usage" class="agent-token-usage" title="Токены текущей сессии и размер последнего контекста модели"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    window.__CONSOLE_CONFIG__ = __CONSOLE_CONFIG_JSON__;
+  </script>
+  <script src="__CONSOLE_PATH__/static/markdown.js"></script>
+  <script src="__CONSOLE_PATH__/static/bsl.js"></script>
+  <script src="__CONSOLE_PATH__/static/xml.js"></script>
+  <script src="__CONSOLE_PATH__/static/mermaid.min.js"></script>
+  <script src="__CONSOLE_PATH__/static/dom-to-image-more.min.js"></script>
+  <script src="__CONSOLE_PATH__/static/code-folding.js"></script>
+  <script src="__CONSOLE_PATH__/static/app.js"></script>
+</body>
+</html>

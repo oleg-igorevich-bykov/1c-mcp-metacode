@@ -1,0 +1,76 @@
+{
+  "name": "tree-sitter-bsl",
+  "version": "0.1.7",
+  "description": "1C (BSL) grammar for tree-sitter",
+  "repository": "https://github.com/alkoleft/tree-sitter-bsl",
+  "license": "MIT",
+  "author": {
+    "name": "alkoleft"
+  },
+  "main": "bindings/node",
+  "types": "bindings/node",
+  "keywords": [
+    "incremental",
+    "parsing",
+    "tree-sitter",
+    "bsl"
+  ],
+  "files": [
+    "grammars/bsl/grammar.js",
+    "grammars/bsl/src/**",
+    "grammars/sdbl/grammar.js",
+    "grammars/sdbl/src/**",
+    "tree-sitter.json",
+    "binding.gyp",
+    "prebuilds/**",
+    "bindings/node/*",
+    "grammars/bsl/queries/*",
+    "grammars/sdbl/queries/*",
+    "grammars/bsl/*.wasm",
+    "grammars/sdbl/*.wasm"
+  ],
+  "dependencies": {
+    "node-addon-api": "^8.2.2",
+    "node-gyp-build": "^4.8.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.14.0",
+    "eslint-config-treesitter": "^1.0.2",
+    "prebuildify": "^6.0.1",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-cli": "0.25.10"
+  },
+  "peerDependencies": {
+    "tree-sitter": "^0.25.0"
+  },
+  "peerDependenciesMeta": {
+    "tree-sitter": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "install": "node-gyp-build",
+    "build:node": "npm exec -- node-gyp rebuild",
+    "build:wasm": "npm run build:wasm:bsl && npm run build:wasm:sdbl",
+    "build:wasm:bsl": "tree-sitter build --wasm grammars/bsl -o grammars/bsl/tree-sitter-bsl.wasm",
+    "build:wasm:sdbl": "tree-sitter build --wasm grammars/sdbl -o grammars/sdbl/tree-sitter-sdbl.wasm",
+    "generate": "npm run generate:bsl && npm run generate:sdbl",
+    "generate:bsl": "tree-sitter generate --output grammars/bsl/src grammars/bsl/grammar.js",
+    "generate:sdbl": "tree-sitter generate --output grammars/sdbl/src grammars/sdbl/grammar.js",
+    "lint": "eslint grammars/bsl/grammar.js",
+    "start": "npm run playground:bsl",
+    "start:bsl": "npm run playground:bsl",
+    "start:sdbl": "npm run playground:sdbl",
+    "playground:bsl": "npm run build:wasm:bsl && tree-sitter playground --grammar-path grammars/bsl",
+    "playground:sdbl": "npm run build:wasm:sdbl && tree-sitter playground --grammar-path grammars/sdbl",
+    "parse:bsl": "tree-sitter parse -p grammars/bsl",
+    "parse:sdbl": "tree-sitter parse -p grammars/sdbl",
+    "test": "npm run test:node",
+    "test:all": "npm run lint && npm run test:corpus && npm run test:node",
+    "test:corpus": "npm run test:corpus:bsl && npm run test:corpus:sdbl",
+    "test:corpus:bsl": "cd grammars/bsl && tree-sitter test",
+    "test:corpus:sdbl": "cd grammars/sdbl && tree-sitter test",
+    "pretest:node": "npm run build:node",
+    "test:node": "node --test bindings/node/*_test.js"
+  }
+}
