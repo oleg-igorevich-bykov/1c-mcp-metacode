@@ -270,6 +270,12 @@ class FormXmlParser:
         """
         Parse provided list of Ext/Form.xml files (both .../Forms/*/Ext/Form.xml and .../CommonForms/*/Ext/Form.xml).
         Same parallel strategy as parse_directory, but without rglob() to support single-pass filesystem scanning.
+
+        NOTE: currently unreferenced anywhere in app/ (the live pipeline calls
+        parse_directory() / worker_extension_form(), which take an explicit code root).
+        The worker below guesses the code root by searching for a literal "code" path
+        segment — that guess only ever matched settings.project_layout="legacy". If you
+        resurrect this method, add a `code_dir: Path` parameter instead of guessing.
         """
         rows = {
             "form_updates": [],

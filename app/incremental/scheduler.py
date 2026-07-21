@@ -682,11 +682,13 @@ class IncrementalLoadingScheduler(threading.Thread):
 
             ml_ext = MetadataLoader()
             extensions_dir = getattr(self.settings_obj, "extensions_directory", None)
+            project_layout = getattr(self.settings_obj, "project_layout", "legacy")
             if extensions_dir is not None and extensions_dir.exists():
                 for ext_dir_name, ext_idx in ext_code_indexes.items():
                     ext_dir = extensions_dir / ext_dir_name
                     if source == "xml":
-                        ext_code_dir = ext_dir / "code"
+                        # vanessa layout: <ExtName>/ IS the flat code root (mirrors cfe/<Name>).
+                        ext_code_dir = ext_dir if project_layout == "vanessa" else ext_dir / "code"
                         if ext_code_dir.exists():
                             try:
                                 configs = ml_ext.load_configurations(

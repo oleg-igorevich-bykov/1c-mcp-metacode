@@ -12,7 +12,7 @@ Handles:
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import logging
 
 from parsers.metadata_parser import MetadataParser
@@ -66,6 +66,30 @@ EXTENSION_DEFAULT_PROPERTIES = {
     "ТипКода",
     "ДопустимаяДлинаКода",
 }
+
+
+def subsystem_qn_chain(xml_path: Optional[Path], code_root: Optional[Path]) -> Optional[List[str]]:
+    """
+    Для вложенной подсистемы вычисляет цепочку имён (без служебного 'Subsystems')
+    относительно фактического корня выгрузки (code_root), чтобы построить QN вида
+    .../Подсистемы/<Parent>/<Child>.
+
+    Раньше корень угадывался поиском литерала "code" в частях пути — это ломалось
+    при любом переименовании каталога выгрузки (например, под vanessa-bootstrap
+    "cf"/"cfe/<Name>"). relative_to(code_root) не зависит от имени каталога.
+
+    Возвращает None, если xml_path не лежит под code_root (или что-то из них не задано) —
+    вызывающий код в этом случае должен откатиться на плоский QN по имени объекта.
+    """
+    if xml_path is None or code_root is None:
+        return None
+    try:
+        rel_parts = xml_path.relative_to(code_root).parts
+    except ValueError:
+        return None
+    chain = [p for p in rel_parts[:-1] if p != "Subsystems"]
+    chain.append(xml_path.stem)
+    return chain
 
 
 class ExtensionsLoader:
@@ -131,19 +155,29 @@ class ExtensionsLoader:
         deferred_ext_linking: list[tuple[str, dict]] = []
 
         metadata_source = getattr(self.settings, "metadata_source", "txt")
+        project_layout = getattr(self.settings, "project_layout", "legacy")
         metadata_loader = MetadataLoader()
 
         for ext_idx, ext_dir in enumerate(ext_dirs, 1):
             ext_dir_name = ext_dir.name
             logger.info("[INDEXER] Loading extension %d/%d: %s", ext_idx, len(ext_dirs), ext_dir_name)
 
-            # Validate structure
-            ext_metadata_dir = ext_dir / "metadata"
-            ext_code_dir = ext_dir / "code"
+            # Validate structure. Layout differs:
+            # - legacy: <ExtName>/metadata/*.txt (txt mode) and/or <ExtName>/code/ (xml mode).
+            # - vanessa: <ExtName>/ IS the flat XML dump root (Configuration.xml directly
+            #   inside), mirroring cfe/<ExtName>/ from vanessa-bootstrap — no metadata/,
+            #   no nested code/. config.py rejects metadata_source="txt" together with
+            #   project_layout="vanessa", so the txt branch below never runs here.
+            if project_layout == "vanessa":
+                ext_metadata_dir = None
+                ext_code_dir = ext_dir
+            else:
+                ext_metadata_dir = ext_dir / "metadata"
+                ext_code_dir = ext_dir / "code"
 
             # Guards differ by metadata_source. In TXT mode the legacy checks stay
             # (metadata/ dir + exactly one .txt). In XML mode we only require
-            # code/Configuration.xml.
+            # Configuration.xml directly under ext_code_dir.
             if metadata_source == "txt":
                 if not ext_metadata_dir.exists():
                     logger.warning("  ⊘ Skipping (no metadata directory): %s", ext_dir_name)
@@ -158,8 +192,8 @@ class ExtensionsLoader:
             else:  # xml
                 if not (ext_code_dir / "Configuration.xml").exists():
                     logger.warning(
-                        "  ⊘ Skipping (no code/Configuration.xml in XML mode): %s",
-                        ext_dir_name,
+                        "  ⊘ Skipping (no Configuration.xml under %s): %s",
+                        ext_code_dir, ext_dir_name,
                     )
                     continue
 
@@ -330,7 +364,8 @@ class ExtensionsLoader:
                                         project_name,
                                         ext_config_qn,
                                         classification_results,
-                                        extraction_results
+                                        extraction_results,
+                                        code_root=ext_code_dir,
                                     )
                                     logger.info("  [ANALYZER] ✓ Extension analysis saved to Neo4j")
                             else:
@@ -691,7 +726,8 @@ class ExtensionsLoader:
         project_name: str,
         ext_config_qn: str,
         classification_results: List[Tuple[Path, Any]],
-        extraction_results: List[Tuple[Path, Any]]
+        extraction_results: List[Tuple[Path, Any]],
+        code_root: Optional[Path] = None,
     ):
         """
         Сохраняет результаты анализа расширения в Neo4j.
@@ -702,21 +738,25 @@ class ExtensionsLoader:
             ext_config_qn: Qualified name расширения
             classification_results: Результаты классификации свойств
             extraction_results: Результаты извлечения значений свойств
+            code_root: корень выгрузки расширения (ext_code_dir) — нужен для построения
+                QN вложенных подсистем через subsystem_qn_chain(); None → откат на
+                плоский QN по имени объекта (см. subsystem_qn_chain).
         """
         # 1. Сохранить классификацию (controlled_properties, modified_properties)
         if classification_results:
-            self._save_properties_classification(session, project_name, ext_config_qn, classification_results)
+            self._save_properties_classification(session, project_name, ext_config_qn, classification_results, code_root)
 
         # 2. Сохранить значения свойств
         if extraction_results:
-            self._save_property_values(session, project_name, ext_config_qn, extraction_results)
+            self._save_property_values(session, project_name, ext_config_qn, extraction_results, code_root)
 
     def _save_properties_classification(
         self,
         session,
         project_name: str,
         ext_config_qn: str,
-        analysis_results: List[Tuple[Path, Any]]
+        analysis_results: List[Tuple[Path, Any]],
+        code_root: Optional[Path] = None,
     ):
         """
         Сохраняет результаты классификации свойств в Neo4j.
@@ -726,6 +766,7 @@ class ExtensionsLoader:
             project_name: Имя проекта
             ext_config_qn: Qualified name расширения (с маркером $ext$)
             analysis_results: Список кортежей (xml_file_path, ObjectAnalysisResult)
+            code_root: корень выгрузки расширения, см. _save_extension_analysis_results.
         """
         total_elements = 0
         rows_by_label: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -746,11 +787,8 @@ class ExtensionsLoader:
 
                 # Особый случай: Subsystem — QN строится по пути файла для вложенных подсистем
                 if obj_result.object_type == "Subsystem" and obj_result.xml_path:
-                    parts = obj_result.xml_path.parts
-                    code_idx = next((i for i, p in enumerate(parts) if p == "code"), None)
-                    if code_idx is not None:
-                        chain = [p for p in parts[code_idx + 1:-1] if p != "Subsystems"]
-                        chain.append(obj_result.xml_path.stem)
+                    chain = subsystem_qn_chain(obj_result.xml_path, code_root)
+                    if chain is not None:
                         base_qn = f"{ext_config_qn}/Подсистемы/" + "/".join(chain)
                     else:
                         base_qn = f"{ext_config_qn}/{category_ru}/{obj_result.object_name}"
@@ -825,7 +863,8 @@ class ExtensionsLoader:
         session,
         project_name: str,
         ext_config_qn: str,
-        extraction_results: List[Tuple[Path, Any]]
+        extraction_results: List[Tuple[Path, Any]],
+        code_root: Optional[Path] = None,
     ):
         """
         Сохраняет значения свойств из XML в Neo4j (батчами).
@@ -837,6 +876,7 @@ class ExtensionsLoader:
             project_name: Имя проекта
             ext_config_qn: Qualified name расширения
             extraction_results: Результаты извлечения свойств
+            code_root: корень выгрузки расширения, см. _save_extension_analysis_results.
         """
         # Собираем все элементы для обновления
         update_rows = []
@@ -856,7 +896,8 @@ class ExtensionsLoader:
                     obj_result.object_type,
                     obj_result.object_name,
                     element,
-                    xml_path=getattr(obj_result, "xml_path", None)
+                    xml_path=getattr(obj_result, "xml_path", None),
+                    code_root=code_root,
                 )
 
                 if not element_qn:
@@ -980,7 +1021,8 @@ class ExtensionsLoader:
         object_type_en: str,
         object_name: str,
         element,
-        xml_path=None
+        xml_path=None,
+        code_root: Optional[Path] = None,
     ) -> str:
         """
         Строит qualified_name для элемента.
@@ -991,6 +1033,8 @@ class ExtensionsLoader:
             object_name: Имя объекта
             element: Элемент
             xml_path: Путь к XML файлу (нужен для Subsystem path-based QN)
+            code_root: корень выгрузки расширения (ext_code_dir), относительно которого
+                строится цепочка вложенных подсистем — см. subsystem_qn_chain()
 
         Returns:
             qualified_name элемента
@@ -999,11 +1043,8 @@ class ExtensionsLoader:
 
         # Subsystem: QN по иерархии пути файла для вложенных подсистем
         if object_type_en == "Subsystem" and xml_path is not None:
-            parts = xml_path.parts
-            code_idx = next((i for i, p in enumerate(parts) if p == "code"), None)
-            if code_idx is not None:
-                chain = [p for p in parts[code_idx + 1:-1] if p != "Subsystems"]
-                chain.append(xml_path.stem)
+            chain = subsystem_qn_chain(xml_path, code_root)
+            if chain is not None:
                 base_qn = f"{ext_config_qn}/Подсистемы/" + "/".join(chain)
             else:
                 base_qn = f"{ext_config_qn}/{category_ru}/{object_name}"

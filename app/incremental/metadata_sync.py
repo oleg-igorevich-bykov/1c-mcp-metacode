@@ -1382,10 +1382,13 @@ class MetadataIncrementalSync:
         base = Path(base_dir)
         if not base.exists():
             return out
+        # vanessa layout: <ExtName>/ IS the flat code root (mirrors cfe/<Name>);
+        # legacy layout keeps the nested <ExtName>/code/.
+        project_layout = getattr(settings_obj, "project_layout", "legacy")
         for child in sorted(base.iterdir()):
             if not child.is_dir():
                 continue
-            code_dir = child / "code"
+            code_dir = child if project_layout == "vanessa" else child / "code"
             if code_dir.exists():
                 out.append((child.name, code_dir))
         return out

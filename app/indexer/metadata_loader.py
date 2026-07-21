@@ -2,9 +2,11 @@
 Metadata loader for base 1C configuration metadata.
 
 Supports two sources, selected by settings.metadata_source:
-  - "txt": parses metadata/*.txt via MetadataParser (default).
   - "xml": parses code/<...>.xml directly via XmlMetadataParser, consuming a
-           ready file list from CodeFileIndex (no extra os.walk inside).
+           ready file list from CodeFileIndex (no extra os.walk inside). Default,
+           and the only source supported with settings.project_layout="vanessa".
+  - "txt": parses metadata/*.txt via MetadataParser. Only available with
+           settings.project_layout="legacy" (see config.py validation).
 """
 
 from pathlib import Path

@@ -1,0 +1,7 @@
+# Ручные (не-fleet) маршруты gateway — tier 1 и всё, что не генерируется из
+# fleet.yml. Генератор вставляет содержимое routes: этого файла ПЕРЕД
+# fleet-маршрутами при сборке итогового gw-routes.yml.
+routes:
+  - prefix: /mcp/searxng
+    upstream: http://mcp-searxng:13000
+    auth: gitea

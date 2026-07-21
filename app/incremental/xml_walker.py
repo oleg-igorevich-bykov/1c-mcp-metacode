@@ -1042,12 +1042,16 @@ def xml_incremental_run_extensions(
             ext_graph_config_name=ext_graph_config_name,
         )
 
+    # vanessa layout: <ExtName>/ IS the flat code root (mirrors cfe/<Name>);
+    # legacy layout keeps the nested <ExtName>/code/.
+    project_layout = getattr(settings_obj, "project_layout", "legacy")
+
     # 3. Per-extension.
     for ext_dir in sorted(ext_dirs, key=lambda d: d.name):
         ext_dir_name = ext_dir.name
         source_scope = f"xml_ext:{ext_dir_name}"
         scope_exists = source_scope in known_scopes
-        ext_code_dir = ext_dir / "code"
+        ext_code_dir = ext_dir if project_layout == "vanessa" else ext_dir / "code"
         config_xml = ext_code_dir / "Configuration.xml"
 
         # Validation: required code/Configuration.xml.
@@ -1595,12 +1599,20 @@ def xml_full_scan_run_extensions(
     if not base_cfg_name:
         base_cfg_name = _detect_base_config_name_xml(state, project_name)
 
+    # vanessa layout: <ExtName>/ IS the flat code root (mirrors cfe/<Name>);
+    # legacy layout keeps the nested <ExtName>/code/.
+    project_layout = getattr(settings_obj, "project_layout", "legacy")
+
     for scope in sorted(scopes):
         ext_dir_name = scope.split("xml_ext:", 1)[-1]
         if ext_dir_name not in on_disk_names:
             # Top-level deletion обрабатывается в xml_incremental_run_extensions, skip.
             continue
-        ext_code_dir = extensions_dir / ext_dir_name / "code"
+        ext_code_dir = (
+            extensions_dir / ext_dir_name
+            if project_layout == "vanessa"
+            else extensions_dir / ext_dir_name / "code"
+        )
         if not ext_code_dir.exists():
             continue
 

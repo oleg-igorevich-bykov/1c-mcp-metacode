@@ -35,7 +35,19 @@ services:
     ports:
       - "6001:6001"  # MCP server (project 1)
     # Host directories are mounted into the container's /app/data directory.
-    # The application expects to find 'metadata' and an optional 'code' subdirectory.
+    # Layout depends on PROJECT_LAYOUT (see .env / .env.example):
+    #
+    # PROJECT_LAYOUT=vanessa (default) — mount the checked-out git repo root as-is
+    # (whatever `git clone`/`git pull` produced — no repackaging step). Expected shape:
+    #   <repo>/src/cf/                  -> base configuration XML dump
+    #   <repo>/src/cfe/<ExtName>/       -> extensions (flat — Configuration.xml directly
+    #                                       inside), one subdirectory per extension
+    #
+    # volumes:
+    #   - ./data/prj1:/app/data   # ./data/prj1 IS the git checkout (contains src/)
+    #
+    # PROJECT_LAYOUT=legacy — the application expects a 'metadata' and/or 'code'
+    # subdirectory, plus optional extensions.
     #
     # Example 1: Single project directory from host
     #   ./data/prj1/metadata -> /app/data/metadata

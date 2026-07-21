@@ -945,7 +945,13 @@ class ArtifactSync:
             extensions_dir = getattr(settings_obj, "extensions_directory", None)
             if extensions_dir is None:
                 continue
-            ext_code_dir = extensions_dir / ext_dir_name / "code"
+            # vanessa layout: <ExtName>/ IS the flat code root (mirrors cfe/<Name>).
+            project_layout = getattr(settings_obj, "project_layout", "legacy")
+            ext_code_dir = (
+                extensions_dir / ext_dir_name
+                if project_layout == "vanessa"
+                else extensions_dir / ext_dir_name / "code"
+            )
             if not ext_code_dir.exists():
                 continue
 
@@ -1617,7 +1623,7 @@ class ArtifactSync:
             for element in getattr(obj_result, "elements", []) or []:
                 if not getattr(element, "is_adopted", False):
                     continue
-                label, qn = derive_element_qn_and_label(obj_result, element, ext_config_qn)
+                label, qn = derive_element_qn_and_label(obj_result, element, ext_config_qn, code_root=root)
                 if not label or not qn:
                     continue
                 payload = json.dumps({
@@ -1643,7 +1649,7 @@ class ArtifactSync:
                 prop_values = getattr(element, "property_values", None)
                 if not prop_values:
                     continue
-                label, qn = derive_element_qn_and_label(obj_result, element, ext_config_qn)
+                label, qn = derive_element_qn_and_label(obj_result, element, ext_config_qn, code_root=root)
                 if not label or not qn:
                     continue
                 for key, value in prop_values.items():

@@ -869,7 +869,7 @@ def _init_artifact_baseline(state, result) -> None:
                     if not getattr(element, "is_adopted", False):
                         continue
                     label, qn = derive_element_qn_and_label(
-                        obj_result, element, ext_cfg_qn,
+                        obj_result, element, ext_cfg_qn, code_root=ext_root,
                     )
                     if not label or not qn:
                         continue
@@ -895,7 +895,7 @@ def _init_artifact_baseline(state, result) -> None:
                     if not prop_values:
                         continue
                     label, qn = derive_element_qn_and_label(
-                        obj_result, element, ext_cfg_qn,
+                        obj_result, element, ext_cfg_qn, code_root=ext_root,
                     )
                     if not label or not qn:
                         continue
@@ -1437,9 +1437,59 @@ def _preflight_artifact_baseline_or_exit(loaded_now: bool) -> None:
     sys.exit(1)
 
 
+def _clear_project_cli(project_name: str) -> int:
+    """One-off maintenance mode: `python main.py --clear-project <name>`.
+
+    Удаляет из Neo4j все данные указанного проекта (батчёванный
+    loader.clear_project) и выходит, НЕ запуская MCP-сервер. Предназначен для
+    decommission-сценария fleet-автоматизации: запуск one-off контейнером тем же
+    образом, что и сервис (та же docker-сеть, тот же .env):
+
+        docker run --rm --network <net> --env-file .env <image> \
+            python main.py --clear-project kgg-do30-main
+
+    Внимание: серверный state (storage/ volume, чекаут data/) этим не очищается —
+    это зона decommission-скрипта. Здесь только граф Neo4j.
+    Возвращает exit code: 0 — успех, 1 — ошибка подключения/удаления.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    project_name = (project_name or "").strip()
+    if not project_name:
+        logger.error("--clear-project requires a non-empty project name")
+        return 1
+    loader = Neo4jLoader()
+    try:
+        loader.connect()
+        logger.info("Clearing Neo4j data for project: %s", project_name)
+        loader.clear_project(project_name)
+        logger.info("Project cleared: %s", project_name)
+        return 0
+    except Exception as e:
+        logger.error("Failed to clear project %s: %s", project_name, e, exc_info=True)
+        return 1
+    finally:
+        try:
+            loader.close()
+        except Exception:
+            pass
+
+
 def main():
     """Main entry point: auto-load metadata (if needed) and run MCP server.
-    All configuration is via environment variables; see config.py and docker-compose.yml."""
+    All configuration is via environment variables; see config.py and docker-compose.yml.
+
+    Maintenance mode: `python main.py --clear-project <name>` — удалить данные
+    проекта из Neo4j и выйти (см. _clear_project_cli)."""
+
+    # Maintenance mode: разбирается ДО любого bootstrap'а сервера.
+    if "--clear-project" in sys.argv:
+        idx = sys.argv.index("--clear-project")
+        name = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
+        sys.exit(_clear_project_cli(name))
 
     # Установка метода запуска процессов для PyInstaller
     try:

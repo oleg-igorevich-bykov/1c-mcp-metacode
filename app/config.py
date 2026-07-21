@@ -2,7 +2,7 @@
 Configuration module for 1C Metadata to Neo4j Loader and MCP Server
 """
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -92,7 +92,27 @@ class Settings(BaseSettings):
     embedding_l2_norm_chunks: bool = True
     embedding_l2_norm_final: bool = True
 
-    # File Paths - Hardcoded; cannot be overridden via environment variables.
+    # Project layout: how the mounted data_directory is organized on disk.
+    # Env: PROJECT_LAYOUT
+    # - "legacy"  — data/metadata (txt report), data/code (XML dump), data/extensions/<Name>/{metadata,code}
+    # - "vanessa" — vanessa-bootstrap convention: data_directory is the checked-out
+    #   repository root itself (git clone/pull mounted as-is, no repackaging step).
+    #   data/src/cf (base configuration XML dump), data/src/cfe/<ExtName> (extensions,
+    #   flat — Configuration.xml directly at that level, no nested code/ subfolder).
+    #   Has no metadata/ (txt report) directory — see the metadata_source/project_layout
+    #   validation below.
+    project_layout: str = "vanessa"
+
+    @field_validator("project_layout")
+    @classmethod
+    def _validate_project_layout(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in {"legacy", "vanessa"}:
+            raise ValueError(f"PROJECT_LAYOUT must be 'legacy' or 'vanessa', got {v!r}")
+        return v
+
+    # File Paths - Hardcoded; cannot be overridden via environment variables
+    # (except for the PROJECT_LAYOUT switch above).
     # Base data directory inside the container (docker-compose mounts ./data -> /app/data)
     @property
     def data_directory(self) -> Path:
@@ -101,16 +121,22 @@ class Settings(BaseSettings):
     # Derived directories under data_directory
     @property
     def metadata_directory(self) -> Path:
+        # Only meaningful for project_layout=legacy + metadata_source=txt (enforced by
+        # the validator below — vanessa layout has no txt report / metadata/ directory).
         return self.data_directory / "metadata"
 
     # 1C configuration code dump directory (for Predefined.xml search)
     @property
     def code_directory(self) -> Path:
+        if self.project_layout == "vanessa":
+            return self.data_directory / "src" / "cf"
         return self.data_directory / "code"
 
     # 1C extensions directory (for loading multiple extensions)
     @property
     def extensions_directory(self) -> Path:
+        if self.project_layout == "vanessa":
+            return self.data_directory / "src" / "cfe"
         return self.data_directory / "extensions"
 
     @property
@@ -606,6 +632,17 @@ class Settings(BaseSettings):
         if v not in {"own", "all"}:
             raise ValueError(f"OBJECT_SUMMARY_EXTENSION_OBJECT_SCOPE must be 'own' or 'all', got {v!r}")
         return v
+
+    @model_validator(mode="after")
+    def _validate_layout_metadata_source_combo(self):
+        if self.project_layout == "vanessa" and self.metadata_source == "txt":
+            raise ValueError(
+                "METADATA_SOURCE=txt is not supported with PROJECT_LAYOUT=vanessa "
+                "(vanessa layout has no metadata/ directory — there is no .txt "
+                "'Отчёт по конфигурации' step in this layout). "
+                "Set METADATA_SOURCE=xml, or use PROJECT_LAYOUT=legacy."
+            )
+        return self
 
 
 def resolve_xml_standard_attributes_mode(mode: str) -> tuple[bool, bool]:

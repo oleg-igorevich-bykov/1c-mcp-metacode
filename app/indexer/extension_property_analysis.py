@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +65,23 @@ def analyze_xml_files(xml_files: List[Path]) -> Tuple[List[Tuple[Path, Any]], Li
 
 
 def derive_element_qn_and_label(
-    obj_result: Any, element: Any, ext_config_qn: str
+    obj_result: Any, element: Any, ext_config_qn: str, code_root: Optional[Path] = None
 ) -> Tuple[str, str]:
     """Compute (label, element_qn) для одного analyzer Element.
 
     Mirror логики из ExtensionsLoader._save_properties_classification (qn-derivation
     branch для разных element_type). Возвращает ("", "") если element_type unknown.
+
+    code_root: корень выгрузки расширения (ext_code_dir), относительно которого строится
+        цепочка вложенных подсистем — см. extensions_loader.subsystem_qn_chain(). Вызывающий
+        код (main.py, incremental/artifact_sync.py) всегда знает этот путь и обязан его
+        передавать — без него вложенные подсистемы откатятся на плоский QN по имени объекта.
     """
-    from indexer.extensions_loader import _ELEMENT_LABEL_WHITELIST, ExtensionsLoader
+    from indexer.extensions_loader import (
+        _ELEMENT_LABEL_WHITELIST,
+        ExtensionsLoader,
+        subsystem_qn_chain,
+    )
 
     label = _ELEMENT_LABEL_WHITELIST.get(element.element_type)
     if not label:
@@ -82,11 +91,8 @@ def derive_element_qn_and_label(
 
     # Subsystem path-based base_qn — пути файла
     if obj_result.object_type == "Subsystem" and getattr(obj_result, "xml_path", None):
-        parts = obj_result.xml_path.parts
-        code_idx = next((i for i, p in enumerate(parts) if p == "code"), None)
-        if code_idx is not None:
-            chain = [p for p in parts[code_idx + 1:-1] if p != "Subsystems"]
-            chain.append(obj_result.xml_path.stem)
+        chain = subsystem_qn_chain(obj_result.xml_path, code_root)
+        if chain is not None:
             base_qn = f"{ext_config_qn}/Подсистемы/" + "/".join(chain)
         else:
             base_qn = f"{ext_config_qn}/{category_ru}/{obj_result.object_name}"
