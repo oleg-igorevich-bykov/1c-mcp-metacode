@@ -30,7 +30,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: roctup/1c-mcp-metacode:latest
+    image: mcp-metacode:latest
     restart: unless-stopped
     ports:
       - "6001:6001"  # MCP server (project 1)
@@ -108,7 +108,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: roctup/1c-mcp-metacode:latest
+    image: mcp-metacode:latest
     restart: unless-stopped
     ports:
       - "6102:6001"  # MCP server (project 2) -> host:6102

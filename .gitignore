@@ -1,0 +1,267 @@
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+nosetests.xml
+test-reports/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# ============================================================================
+# Virtual Environments
+# ============================================================================
+venv/
+env/
+.env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+.env
+.env.local
+.env.*.local
+*.env
+
+# ============================================================================
+# IDE / Editors
+# ============================================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Cursor
+.cursor/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ============================================================================
+# Claude Code (ВАЖНО!)
+# ============================================================================
+.claude/
+*.claude
+.claude-*
+CLAUDE.md
+
+# ============================================================================
+# Operating System
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================================================
+# Project-specific: Data & Storage
+# ============================================================================
+
+# Исключаем содержимое data/, но сохраняем структуру папок
+data/*
+!data/.gitkeep
+!data/README.md
+!data/help1c/
+data/help1c/*
+!data/help1c/.gitkeep
+!data/help1c/README.md
+!data/cache/.gitkeep
+!data/logs/.gitkeep
+!data/qdrant-storage/.gitkeep
+
+# ============================================================================
+# Logs
+# ============================================================================
+*.log
+logs/
+log/
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================================================
+# Cache
+# ============================================================================
+*.cache
+.cache/
+cache/
+.ruff_cache/
+.black_cache/
+
+# ============================================================================
+# Pre-commit
+# ============================================================================
+.pre-commit-config.yaml.bak
+
+# ============================================================================
+# Docker
+# ============================================================================
+docker-compose.override.yml
+.dockerignore.local
+docker-compose.yml
+# ============================================================================
+# Temporary files
+# ============================================================================
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+.~lock.*
+
+# ============================================================================
+# Jupyter Notebook
+# ============================================================================
+.ipynb_checkpoints
+*.ipynb
+
+# ============================================================================
+# Lock files (НЕ игнорируем - нужны для reproducibility!)
+# ============================================================================
+# requirements.lock - коммитим!
+# poetry.lock - коммитим!
+# Pipfile.lock - коммитим!
+
+# ============================================================================
+# Compiled files
+# ============================================================================
+*.pyc
+*.pyo
+*.pyd
+.so
+.dll
+.dylib
+
+# ============================================================================
+# Documentation builds
+# ============================================================================
+docs/_build/
+docs/.doctrees/
+site/
+
+# ============================================================================
+# Security & Secrets (дополнительная защита)
+# ============================================================================
+*.pem
+*.key
+*.cert
+*.crt
+*secret*
+*credentials*
+*token*
+.password
+secrets/
+
+# Но не игнорируем публичные примеры:
+!*.example
+!*.sample
+!.env.example
+
+# ============================================================================
+# Misc
+# ============================================================================
+.tool-versions
+.python-version
+examples/
