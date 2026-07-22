@@ -811,6 +811,19 @@ def _make_health_handler(transport: str):
     return handler
 
 
+async def _health_index_handler(request: Request) -> Response:
+    """Unauthenticated readiness probe for the graph bootstrap index.
+
+    Intended for Prometheus blackbox (http_2xx, anonymous GET): distinguishes
+    "container alive" (tcp probe) from "config graph index ready". Returns
+    only a boolean status, no configuration/system data, so it is safe to
+    leave without console auth.
+    """
+    from mcpsrv import runtime_state as _runtime_state
+    ready = _runtime_state.is_ready()
+    return JSONResponse({"ready": ready}, status_code=200 if ready else 503)
+
+
 async def _console_users_handler(request: Request) -> Response:
     auth = _admin_or_403(request)
     if _is_response(auth):
@@ -879,6 +892,7 @@ def build_console_routes(transport: str) -> list:
         Route(f"{prefix}/stats",           _console_stats_handler,         methods=["GET"]),
         Route(f"{prefix}/stats/refresh",   _console_stats_refresh_handler, methods=["POST"]),
         Route(f"{prefix}/health",          _make_health_handler(transport), methods=["GET"]),
+        Route(f"{prefix}/health/index",    _health_index_handler,          methods=["GET"]),
         Route(f"{prefix}/runtime/usage",   _runtime_usage_handler,         methods=["GET"]),
         Route(f"{prefix}/mcp/tools",       _mcp_tools_handler,             methods=["GET"]),
         Route(f"{prefix}/mcp/tools/{{tool_name}}", _mcp_tool_toggle_handler, methods=["PATCH"]),

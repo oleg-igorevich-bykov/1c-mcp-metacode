@@ -3,7 +3,7 @@ Configuration module for 1C Metadata to Neo4j Loader and MCP Server
 """
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -13,7 +13,13 @@ APP_VERSION = "2.0.0"
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
-    
+
+    # Empty string in the environment (e.g. `KEY=` in .env) means "not set" —
+    # fall back to the field default instead of trying to parse "" as the
+    # field's type. Without this, optional int/float fields left empty per
+    # .env.example (e.g. BSL_PROCESS_WORKERS=) fail Settings() validation.
+    model_config = SettingsConfigDict(env_ignore_empty=True)
+
     # Neo4j Database Configuration
     neo4j_uri: str = "bolt://1c-neo4j:7687"
     neo4j_username: str = "neo4j"

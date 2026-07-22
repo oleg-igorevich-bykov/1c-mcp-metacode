@@ -13,6 +13,36 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
+def _run_with_retry(session, stmt: str, max_attempts: int = 4, base_delay: float = 0.5) -> None:
+    """Run a DDL statement, retrying on transient errors (e.g. deadlocks).
+
+    Neo4j classifies lock contention between concurrent schema changes as
+    TransientError specifically so the client retries — manual session.run()
+    (unlike execute_write) does not do this automatically. This matters when
+    several graph containers on a shared Neo4j instance run create_indexes()
+    concurrently (e.g. a multi-unit apply-fleet provisioning run) and race on
+    the same global constraint/index schema.
+
+    Non-transient errors (including "already exists") are re-raised
+    immediately and handled by the caller's existing except block.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            session.run(stmt)
+            return
+        except Neo4jError as e:
+            code = getattr(e, "code", "") or ""
+            transient = "TransientError" in code or "DeadlockDetected" in str(e)
+            if transient and attempt < max_attempts:
+                logger.debug(
+                    "Transient error on attempt %d/%d for statement, retrying: %s",
+                    attempt, max_attempts, e,
+                )
+                time.sleep(base_delay * attempt)  # linear backoff
+                continue
+            raise
+
+
 # Vector index specs (shared by initial DDL and re-creation paths).
 # Filterable properties are used as index-level prefilter via Neo4j SEARCH clause.
 # `owner_qn` is intentionally NOT filterable (high cardinality / long values).
@@ -509,7 +539,7 @@ class IndexManagementMixin:
             # Apply all definitions
             for stmt in constraints + indexes + fulltext:
                 try:
-                    session.run(stmt)
+                    _run_with_retry(session, stmt)
                 except Neo4jError as e:
                     code = getattr(e, "code", "") or ""
                     msg = str(e)
@@ -543,7 +573,7 @@ class IndexManagementMixin:
             ]
             for stmt in stmts:
                 try:
-                    session.run(stmt)
+                    _run_with_retry(session, stmt)
                 except Neo4jError as e:
                     code = getattr(e, "code", "") or ""
                     msg = str(e)
