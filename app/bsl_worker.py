@@ -28,6 +28,7 @@ import threading
 from bsl_signature_scanner import scan_bsl_file, scan_bsl_from_form_bin
 from parsers.form_bin_parser import FormBinParser
 from neo4j_loader import Neo4jLoader
+from neo4j_retry import call_with_retry
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -113,16 +114,25 @@ def worker_bsl_streaming(
                     os.getpid(), len(pending_items), len(pending_modules), len(pending_routines),
                     batch_size_bytes / (1024 * 1024)
                 )
-            # Single call to persist accumulated modules/routines/declares for the batch
-            loader.load_bsl_signatures(
-                project_name,
-                cfg_name,
-                pending_modules,
-                pending_routines,
-                pending_declares,
-                pending_common_declares,
-                None,  # form_routines not used here
-                do_linking=False
+            # Single call to persist accumulated modules/routines/declares for the batch.
+            # Wrapped in retry: under fleet-wide concurrent bulk-load (many graph
+            # containers writing to the same shared Neo4j at once), a batch write can
+            # hit transient lock contention (Neo.TransientError.*, LockClientStopped,
+            # TransactionTimedOutClientConfiguration) that succeeds on a quick retry —
+            # without this, such a batch's files were marked failed permanently
+            # (22.07 incident: 18-container concurrent provisioning run).
+            call_with_retry(
+                lambda: loader.load_bsl_signatures(
+                    project_name,
+                    cfg_name,
+                    pending_modules,
+                    pending_routines,
+                    pending_declares,
+                    pending_common_declares,
+                    None,  # form_routines not used here
+                    do_linking=False
+                ),
+                what=f"Worker {worker_id} batch Neo4j write",
             )
             # Emit per-file success messages (indexes/callsites/form_links were carried along)
             for it in pending_items:

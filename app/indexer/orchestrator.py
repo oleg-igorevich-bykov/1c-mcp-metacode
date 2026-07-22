@@ -12,6 +12,7 @@ from contextlib import contextmanager
 
 from config import settings
 from neo4j_loader import Neo4jLoader
+from neo4j_retry import is_transient_neo4j_error
 
 from .indexing_result import IndexingResult
 from .metadata_loader import MetadataLoader
@@ -532,11 +533,27 @@ class IndexerOrchestrator:
             )
 
         except Exception as e:
+            transient = is_transient_neo4j_error(e)
+            if transient:
+                # Same root cause as the constraint/index retry (indexes.py), but
+                # here it hit a write path instead of DDL: under fleet-wide
+                # concurrent bulk-load (many graph containers writing to the same
+                # shared Neo4j at once), a batch/query can exhaust its own retries
+                # (LockClientStopped, TransactionTimedOutClientConfiguration —
+                # 22.07 incident: 18-container concurrent provisioning run) and
+                # bubble up here. Classified so the caller (main.py:
+                # check_and_load_metadata) can retry the whole pass once with a
+                # fresh Neo4jLoader instead of exiting immediately.
+                logger.warning(
+                    "Indexing failed with a transient Neo4j error (likely fleet-wide "
+                    "Neo4j contention during bulk load): %s", e,
+                )
             logger.error("Error during indexing: %s", str(e))
             return IndexingResult(
                 success=False,
                 metadata_source=metadata_source,
                 metadata_dir=metadata_dir,
+                transient_error=transient,
             )
 
         finally:

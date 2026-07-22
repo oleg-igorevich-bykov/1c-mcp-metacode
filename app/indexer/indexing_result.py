@@ -51,6 +51,13 @@ class IndexingResult:
     # Используется `_init_artifact_baseline` чтобы записать `bsl_file_artifacts` rows
     # симметрично incremental phase 2/3.
     bsl_data: Optional[Any] = None
+    # True, если success=False произошёл из-за транзиентной ошибки Neo4j
+    # (deadlock/lock contention/timeout под конкурентной нагрузкой на общий
+    # Neo4j при массовом провижининге флота), а не из-за проблемы с данными.
+    # Вызывающий код (main.py:check_and_load_metadata) может использовать это,
+    # чтобы один раз повторить весь индексирующий прогон со свежим Neo4jLoader,
+    # вместо немедленного sys.exit(1).
+    transient_error: bool = False
 
     def __bool__(self) -> bool:
         return self.success

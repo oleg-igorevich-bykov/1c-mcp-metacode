@@ -1152,13 +1152,17 @@ def _decide_forced_reload(path: Path):
     )
 
 
-def check_and_load_metadata():
+def check_and_load_metadata(force_reload: bool = False):
     """
     Check if metadata is loaded in Neo4j, and load it if necessary.
 
     Uses settings.full_metadata_reload (env FULL_METADATA_RELOAD) to control drop-and-reload.
+    `force_reload` ORs into the same decision (used by the artifact-baseline auto-heal
+    path in `_preflight_artifact_baseline_or_exit`) — it goes through the exact same
+    one-shot marker semantics as the manual env var, so it inherits the same
+    fail-closed guarantees (see `_decide_forced_reload`).
     Returns (success, loaded_now):
-      - (True, False) — metadata already existed, ничего не делалось.
+      - (True, False) — metadata already существовала, ничего не делалось.
       - (True, True)  — full reload или initial load выполнен в этом процессе.
       - (False, False) — ошибка.
     `loaded_now=True` означает, что _init_incremental_baseline только что записал свежий baseline,
@@ -1204,7 +1208,7 @@ def check_and_load_metadata():
         #     may be partially cleared and we must not serve it;
         #   - skip (succeeded marker) only matters when the flag is true: the
         #     forced reload already ran once in this container.
-        reload_flag = settings.full_metadata_reload
+        reload_flag = settings.full_metadata_reload or force_reload
         decision, msg = _decide_forced_reload(marker_path)
 
         if decision == "abort":
@@ -1279,6 +1283,24 @@ def check_and_load_metadata():
         _t0 = time.perf_counter()
         result = indexer.index_metadata(directory=metadata_dir, clear_db=reload_flag)
         success = result.success  # IndexingResult.__bool__ also works
+
+        # One retry of the whole pass with a fresh Indexer()/Neo4jLoader if the
+        # failure was transient Neo4j lock contention rather than a data problem.
+        # Root cause: fleet-wide bulk-load contention on the shared Neo4j instance
+        # during mass provisioning (22.07 incident: 18 graph containers writing
+        # concurrently); a brief retry after backoff is often enough for the
+        # contention to clear. A fresh Indexer() avoids reusing a driver whose
+        # session pool may be in a bad state after LockClientStopped/timeout.
+        if not success and getattr(result, "transient_error", False):
+            logger.warning(
+                "Full metadata load failed with a transient Neo4j error — "
+                "retrying the whole pass once with a fresh connection."
+            )
+            time.sleep(2.0)
+            indexer = Indexer()
+            result = indexer.index_metadata(directory=metadata_dir, clear_db=reload_flag)
+            success = result.success
+
         _t = time.perf_counter() - _t0
         logger.info("index took %s", _fmt_duration(_t))
 
@@ -1383,35 +1405,33 @@ def check_and_load_metadata():
             pass
 
 
-def _preflight_artifact_baseline_or_exit(loaded_now: bool) -> None:
-    """Синхронный fail-closed preflight готовности artifact baseline до run_server().
+def _evaluate_artifact_baseline(loaded_now: bool):
+    """Чистая (без sys.exit) оценка готовности artifact baseline.
 
-    Запускается только на restart-пути (`not loaded_now`) при включённом incremental:
-    свежий full/initial load (`loaded_now=True`) только что записал baseline, повторно
-    проверять нечего. Единый evaluator `evaluate_artifact_baseline_readiness` — тот же,
-    что защищает scheduler. Любой fail-closed исход → ERROR + `sys.exit(1)`; тем самым
-    vector embedding / BSL code search / object summaries / periodic scheduler не стартуют.
+    Возвращает None, если проверка не нужна на этом пути (свежий load только что
+    записал baseline, либо incremental отключён) — вызывающий код тогда просто
+    продолжает как обычно. Иначе — ArtifactBaselineReadiness (в т.ч. READY).
     """
     if loaded_now or not getattr(settings, "incremental_loading_enabled", False):
-        return
+        return None
     from pathlib import Path as _Path
 
-    from incremental.state import ArtifactBaselineReadiness, IncrementalLoadingState
+    from incremental.state import IncrementalLoadingState
 
     metadata_source = getattr(settings, "metadata_source", "txt")
     state = IncrementalLoadingState(
         _Path(settings.incremental_loading_state_path), settings.project_name
     )
     try:
-        readiness = state.evaluate_artifact_baseline_readiness(metadata_source)
+        return state.evaluate_artifact_baseline_readiness(metadata_source)
     finally:
         state.close()
 
-    if readiness in (
-        ArtifactBaselineReadiness.READY,
-    ):
-        return
 
+def _log_artifact_baseline_error(readiness) -> None:
+    from incremental.state import ArtifactBaselineReadiness
+
+    metadata_source = getattr(settings, "metadata_source", "txt")
     action = (
         "Пересоздайте контейнер с FULL_METADATA_RELOAD=true: "
         "docker compose up -d --force-recreate <service>."
@@ -1434,7 +1454,59 @@ def _preflight_artifact_baseline_or_exit(loaded_now: bool) -> None:
             "есть, но artifact baseline не завершён (completion stage отсутствует). %s",
             settings.project_name, metadata_source, action,
         )
-    sys.exit(1)
+
+
+def _preflight_artifact_baseline_or_exit(loaded_now: bool) -> None:
+    """Fail-closed preflight готовности artifact baseline до run_server(), с
+    опциональным auto-heal (AUTO_HEAL_ARTIFACT_BASELINE, default true).
+
+    Запускается только на restart-пути (`not loaded_now`) при включённом incremental:
+    свежий full/initial load (`loaded_now=True`) только что записал baseline, повторно
+    проверять нечего. Единый evaluator `evaluate_artifact_baseline_readiness` — тот же,
+    что защищает scheduler.
+
+    При несогласованном baseline и AUTO_HEAL_ARTIFACT_BASELINE=true — вместо
+    немедленного exit пробует тот же one-shot full reload, что сегодня требует
+    ручного FULL_METADATA_RELOAD=true + пересоздания контейнера (см.
+    check_and_load_metadata(force_reload=True)). Это безопасно: reload идёт через
+    ТОТ ЖЕ one-shot marker-механизм (_decide_forced_reload), что и ручной путь —
+    если сам reload не завершится (например, source-файлов физически нет), marker
+    не перейдёт в succeeded, и повторная проверка ниже поймает это и всё равно
+    сделает sys.exit(1), как и раньше. При AUTO_HEAL_ARTIFACT_BASELINE=false —
+    прежнее строго-ручное поведение (ERROR + exit).
+    """
+    from incremental.state import ArtifactBaselineReadiness
+
+    readiness = _evaluate_artifact_baseline(loaded_now)
+    if readiness is None or readiness == ArtifactBaselineReadiness.READY:
+        return
+
+    if not getattr(settings, "auto_heal_artifact_baseline", True):
+        _log_artifact_baseline_error(readiness)
+        sys.exit(1)
+
+    logger.warning(
+        "Artifact baseline несогласован (%s, project=%s) — запускаю автоматический "
+        "one-shot full reload вместо ручного FULL_METADATA_RELOAD=true.",
+        getattr(readiness, "value", readiness), settings.project_name,
+    )
+    success, _loaded_now2 = check_and_load_metadata(force_reload=True)
+    if not success:
+        logger.error(
+            "Автоматический full reload (auto-heal artifact baseline) не удался. "
+            "Сервер не будет запущен."
+        )
+        sys.exit(1)
+
+    readiness_after = _evaluate_artifact_baseline(loaded_now=False)
+    if readiness_after is not None and readiness_after != ArtifactBaselineReadiness.READY:
+        logger.error(
+            "Baseline всё ещё не READY (%s) после автоматического full reload — это "
+            "не транзиентная проблема (например, source-файлов физически нет). "
+            "Сервер не будет запущен.",
+            getattr(readiness_after, "value", readiness_after),
+        )
+        sys.exit(1)
 
 
 def _clear_project_cli(project_name: str) -> int:

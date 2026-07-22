@@ -214,6 +214,15 @@ class Settings(BaseSettings):
     # FULL_METADATA_RELOAD: set to "true"/"1" to force full reload (clear DB) on startup
     full_metadata_reload: bool = False
 
+    # AUTO_HEAL_ARTIFACT_BASELINE: when the restart-path artifact baseline preflight
+    # (_preflight_artifact_baseline_or_exit) finds an inconsistent baseline (e.g.
+    # metadata is in Neo4j but the local incremental-state file was lost — container
+    # killed mid-write, as in the 22.07 kgg-do30-main incident), automatically run the
+    # same one-shot full reload that today requires a human to set
+    # FULL_METADATA_RELOAD=true and recreate the container. false restores the old
+    # strictly-manual behavior (log + sys.exit(1)).
+    auto_heal_artifact_baseline: bool = True
+
     # ====================
     # Incremental loading (stage 1: metadata TXT/XML)
     # ====================
