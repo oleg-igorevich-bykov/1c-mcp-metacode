@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from config import settings
 from neo4j_loader import Neo4jLoader
 from neo4j_retry import is_transient_neo4j_error
+from mcpsrv import index_progress
 
 from .indexing_result import IndexingResult
 from .metadata_loader import MetadataLoader
@@ -110,6 +111,18 @@ class IndexerOrchestrator:
         # workers are terminated even if an exception occurs after they started.
         bsl_started = False
         bsl_finalized = False
+
+        # TASK-index-progress.md: mark the bootstrap phase for the anonymous
+        # GET /api/console/metrics/index Prometheus endpoint. processed_getter
+        # reads the BSL processor's already-maintained parsed-file counter live
+        # (no push needed) — BSL parsing is typically the longest-running part
+        # of a full/initial load, so this is the most useful live counter
+        # available; total is left unknown (streaming discovery finds files
+        # during the scan, so there is no upfront total to report).
+        index_progress.begin_phase(
+            "loading_metadata",
+            processed_getter=lambda: self.bsl_processor.bsl_parsed_count,
+        )
 
         try:
             metadata_source = getattr(settings, "metadata_source", "txt")
@@ -298,6 +311,14 @@ class IndexerOrchestrator:
                 if bsl_started and not bsl_finalized:
                     self.bsl_processor.terminate_workers()
                 raise
+
+            # Metadata parse + graph load + BSL file parsing (concurrent with the
+            # scan) are done; remaining stages build out the rest of the graph
+            # (forms/help/predefined/BSL linking/callsites/events/rights/extensions).
+            index_progress.begin_phase(
+                "building_graph",
+                processed_getter=lambda: self.bsl_processor.bsl_parsed_count,
+            )
 
             # =================================================================
             # STAGE 5: Load forms data
@@ -563,6 +584,12 @@ class IndexerOrchestrator:
                     self.bsl_processor.terminate_workers()
                 except Exception as te:
                     logger.error("BSL terminate on cleanup failed: %s", te)
+            # This pass (success or failure) is done either way — clear both
+            # phase markers unconditionally so a failed/short-circuited run
+            # (e.g. early "no configurations found" return) never leaves a
+            # stale phase active for /api/console/metrics/index.
+            index_progress.end_phase("loading_metadata")
+            index_progress.end_phase("building_graph")
             # Ensure connection is closed
             self.loader.close()
 

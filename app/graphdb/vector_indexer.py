@@ -19,6 +19,7 @@ from graphdb.embedding_service import (
 from graphdb import embedding_usage_metrics as embedding_metrics
 from graphdb.routine_indexer import RoutineDescriptionIndexer
 from graphdb.metadata_indexer import MetadataObjectDescriptionIndexer
+from mcpsrv import index_progress
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,11 @@ class VectorIndexer:
             await self._ensure_project_fingerprint()
 
             self.is_running = True
+            # TASK-index-progress.md: no cheap total-items count is available
+            # here (rounds/batches are internal to each description phase, not
+            # a flat item count known upfront) — phase-only marker, no
+            # processed/total for this phase.
+            index_progress.begin_phase("embedding_code")
 
             # Step 1: Index Routine descriptions (if enabled)
             if settings.enable_routine_description_embedding:
@@ -233,6 +239,7 @@ class VectorIndexer:
                 logger.error(f"Failed to start vector indexing: {e}", exc_info=True)
         finally:
             self.is_running = False
+            index_progress.end_phase("embedding_code")
 
     def _finalize_degraded(self) -> None:
         """Set or clear the degraded reason based on this pass's accumulated

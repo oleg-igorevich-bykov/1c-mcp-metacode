@@ -824,6 +824,57 @@ async def _health_index_handler(request: Request) -> Response:
     return JSONResponse({"ready": ready}, status_code=200 if ready else 503)
 
 
+async def _metrics_index_handler(request: Request) -> Response:
+    """Unauthenticated Prometheus exposition-format progress metrics for the
+    bootstrap/incremental indexing pipeline (TASK-index-progress.md — phase 2
+    follow-up to `/api/console/health/index`). Scraped by the fleet's
+    `fleet-index-progress` blackbox/scrape job roughly every 30s; reads only
+    already-maintained in-memory counters (index_progress.snapshot(),
+    runtime_state.is_ready()), never recomputes from Neo4j, so repeated
+    scrapes add no meaningful load. Always 200 — this reports progress, not
+    readiness, so "not started yet" / "already finished" are valid states,
+    not errors.
+    """
+    from mcpsrv import index_progress as _index_progress
+    from mcpsrv import runtime_state as _runtime_state
+
+    ready = _runtime_state.is_ready()
+    snap = _index_progress.snapshot()
+
+    lines = [
+        "# TYPE mcp_index_ready gauge",
+        f"mcp_index_ready {1 if ready else 0}",
+    ]
+
+    if ready:
+        # Contract: once ready, report progress as complete rather than a
+        # stale/absent ratio from whichever phase finished last.
+        lines.append("# TYPE mcp_index_progress_ratio gauge")
+        lines.append("mcp_index_progress_ratio 1")
+    elif snap["ratio"] is not None:
+        lines.append("# TYPE mcp_index_progress_ratio gauge")
+        lines.append(f"mcp_index_progress_ratio {snap['ratio']:.4f}")
+
+    if snap["phase"]:
+        lines.append("# TYPE mcp_index_phase_info gauge")
+        lines.append(f'mcp_index_phase_info{{phase="{snap["phase"]}"}} 1')
+
+    if isinstance(snap["processed"], (int, float)):
+        lines.append("# TYPE mcp_index_processed_items gauge")
+        lines.append(f"mcp_index_processed_items {int(snap['processed'])}")
+
+    if isinstance(snap["total"], (int, float)) and snap["total"] > 0:
+        lines.append("# TYPE mcp_index_total_items gauge")
+        lines.append(f"mcp_index_total_items {int(snap['total'])}")
+
+    if not ready and isinstance(snap["eta_seconds"], (int, float)):
+        lines.append("# TYPE mcp_index_eta_seconds gauge")
+        lines.append(f"mcp_index_eta_seconds {int(snap['eta_seconds'])}")
+
+    body = "\n".join(lines) + "\n"
+    return Response(body, media_type="text/plain; version=0.0.4")
+
+
 async def _console_users_handler(request: Request) -> Response:
     auth = _admin_or_403(request)
     if _is_response(auth):
@@ -893,6 +944,7 @@ def build_console_routes(transport: str) -> list:
         Route(f"{prefix}/stats/refresh",   _console_stats_refresh_handler, methods=["POST"]),
         Route(f"{prefix}/health",          _make_health_handler(transport), methods=["GET"]),
         Route(f"{prefix}/health/index",    _health_index_handler,          methods=["GET"]),
+        Route(f"{prefix}/metrics/index",   _metrics_index_handler,         methods=["GET"]),
         Route(f"{prefix}/runtime/usage",   _runtime_usage_handler,         methods=["GET"]),
         Route(f"{prefix}/mcp/tools",       _mcp_tools_handler,             methods=["GET"]),
         Route(f"{prefix}/mcp/tools/{{tool_name}}", _mcp_tool_toggle_handler, methods=["PATCH"]),

@@ -120,7 +120,7 @@ class IncrementalLoadingScheduler(threading.Thread):
         # First cycle — immediately, если caller не подавил его (startup one-shot
         # уже отработал в run_server до старта scheduler-а).
         if self.run_first_cycle:
-            self._cycle(state)
+            self._cycle_with_progress(state)
 
         # Subsequent cycles only if schedule_enabled.
         if not getattr(self.settings_obj, "incremental_loading_schedule_enabled", False):
@@ -131,9 +131,20 @@ class IncrementalLoadingScheduler(threading.Thread):
             60, int(self.settings_obj.incremental_loading_interval_minutes * 60)
         )
         while not self.stop_event.wait(interval_sec):
-            self._cycle(state)
+            self._cycle_with_progress(state)
 
         state.close()
+
+    def _cycle_with_progress(self, state: "IncrementalLoadingState") -> None:
+        """TASK-index-progress.md: mark `incremental_update` for the duration of
+        one periodic cycle, for the anonymous GET /api/console/metrics/index
+        endpoint. Phase-only — a cycle's item count isn't known upfront."""
+        from mcpsrv import index_progress
+        index_progress.begin_phase("incremental_update")
+        try:
+            self._cycle(state)
+        finally:
+            index_progress.end_phase("incremental_update")
 
     # ------------------------------------------------------------------
     # Source mismatch

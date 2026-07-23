@@ -80,12 +80,17 @@ def _run_startup_incremental() -> tuple:
 
         state_path = _Path(settings.incremental_loading_state_path)
         logging.info("Startup incremental loading started before background indexers")
-        success, last_full_scan_at, cycle_ran = run_incremental_once(
-            loader=loader,
-            settings_obj=settings,
-            state_path=state_path,
-            embedding_availability=status,
-        )
+        from mcpsrv import index_progress
+        index_progress.begin_phase("incremental_update")
+        try:
+            success, last_full_scan_at, cycle_ran = run_incremental_once(
+                loader=loader,
+                settings_obj=settings,
+                state_path=state_path,
+                embedding_availability=status,
+            )
+        finally:
+            index_progress.end_phase("incremental_update")
         if not success:
             # Fail-closed: baseline/source validation провалена. Не запускать
             # post-bootstrap pipeline (embedding/BSL/summary/scheduler).
@@ -335,6 +340,10 @@ def _start_object_summary_background(embedding_availability=None) -> Optional[th
         indexer = ObjectSummaryIndexer(loader.driver, embedding_availability=embedding_availability)
 
         def _run():
+            # TASK-index-progress.md: phase-only marker (no cheap upfront
+            # item count for S0/S1/S2 object-summary stages combined).
+            from mcpsrv import index_progress
+            index_progress.begin_phase("generating_summaries")
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -342,6 +351,7 @@ def _start_object_summary_background(embedding_availability=None) -> Optional[th
             except Exception as e:
                 logging.error("Object summary pipeline thread failed: %s", e, exc_info=True)
             finally:
+                index_progress.end_phase("generating_summaries")
                 try:
                     loop.close()
                 except Exception:
