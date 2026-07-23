@@ -1152,7 +1152,7 @@ def _decide_forced_reload(path: Path):
     )
 
 
-def check_and_load_metadata(force_reload: bool = False):
+def check_and_load_metadata(force_reload: bool = False, _heal_retry: bool = False):
     """
     Check if metadata is loaded in Neo4j, and load it if necessary.
 
@@ -1161,6 +1161,13 @@ def check_and_load_metadata(force_reload: bool = False):
     path in `_preflight_artifact_baseline_or_exit`) — it goes through the exact same
     one-shot marker semantics as the manual env var, so it inherits the same
     fail-closed guarantees (see `_decide_forced_reload`).
+
+    `_heal_retry` is internal/private: set when this call IS itself the one
+    auto-heal retry after an "abort" decision (stuck `started` marker from a
+    process killed mid-reload), so a second "abort" on the retry fails closed
+    immediately instead of recursing again (see AUTO_HEAL_ARTIFACT_BASELINE
+    below) — no silent infinite loop within one process.
+
     Returns (success, loaded_now):
       - (True, False) — metadata already существовала, ничего не делалось.
       - (True, True)  — full reload или initial load выполнен в этом процессе.
@@ -1212,6 +1219,38 @@ def check_and_load_metadata(force_reload: bool = False):
         decision, msg = _decide_forced_reload(marker_path)
 
         if decision == "abort":
+            # A previous destructive reload was killed mid-way (OOM/host restart/
+            # manual docker kill) before it could write succeeded/failed — marker
+            # stuck at "started". AUTO_HEAL_ARTIFACT_BASELINE=true (default, same
+            # switch as the artifact-baseline preflight auto-heal) resets the
+            # stuck marker and retries the full reload once, same idempotency
+            # argument as apply-fleet.yml's batching comment: Neo4j MERGE upserts
+            # mean a repeated full reload just picks up from a clean slate, it is
+            # not a correctness risk. `_heal_retry` bounds this to a single retry
+            # per process — if the retry itself hits "abort" again, fail closed
+            # exactly as before (no silent infinite loop).
+            if getattr(settings, "auto_heal_artifact_baseline", True) and not _heal_retry:
+                logger.warning(
+                    "%s Запускаю автоматический full reload вместо отказа "
+                    "(auto-heal: сбрасываю зависший marker).",
+                    msg,
+                )
+                try:
+                    marker_path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as unlink_err:
+                    logger.error(
+                        "Не удалось сбросить marker %s для авто-восстановления (%s). "
+                        "Сервер не будет запущен.",
+                        marker_path, unlink_err,
+                    )
+                    return False, False
+                try:
+                    loader.close()
+                except Exception:
+                    pass
+                return check_and_load_metadata(force_reload=True, _heal_retry=True)
             logger.error(msg)
             return False, False
 
