@@ -219,8 +219,13 @@ class IndexerOrchestrator:
                     with _stage_timer("Metadata graph load"):
                         # Full-load / initial load runs at startup: use the bounded
                         # embedding probe for vector DDL so a dead endpoint can't stall.
+                        # SCHEMA_MANAGED_EXTERNALLY skips create_indexes() here so a
+                        # fleet-wide simultaneous bootstrap does not deadlock on shared
+                        # schema locks (schema pre-created by `main.py --ensure-schema`).
                         self.loader.load_configurations(
-                            configurations, use_startup_probe_for_vectors=True
+                            configurations,
+                            use_startup_probe_for_vectors=True,
+                            ensure_indexes=not settings.schema_managed_externally,
                         )
                     logger.info("-" * 60)
 
@@ -261,8 +266,13 @@ class IndexerOrchestrator:
                     with _stage_timer("Metadata graph load"):
                         # Full-load / initial load runs at startup: use the bounded
                         # embedding probe for vector DDL so a dead endpoint can't stall.
+                        # SCHEMA_MANAGED_EXTERNALLY skips create_indexes() here so a
+                        # fleet-wide simultaneous bootstrap does not deadlock on shared
+                        # schema locks (schema pre-created by `main.py --ensure-schema`).
                         self.loader.load_configurations(
-                            configurations, use_startup_probe_for_vectors=True
+                            configurations,
+                            use_startup_probe_for_vectors=True,
+                            ensure_indexes=not settings.schema_managed_externally,
                         )
                     logger.info("-" * 60)
 

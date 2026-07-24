@@ -223,6 +223,18 @@ class Settings(BaseSettings):
     # strictly-manual behavior (log + sys.exit(1)).
     auto_heal_artifact_baseline: bool = True
 
+    # SCHEMA_MANAGED_EXTERNALLY: when true, this container does NOT create Neo4j
+    # constraints/indexes/fulltext during metadata load — the fleet is expected to
+    # have run `python main.py --ensure-schema` once (single writer) beforehand.
+    # This removes the schema-lock contention (Neo.TransientError.DeadlockDetected on
+    # CREATE CONSTRAINT/INDEX) that arises when ~20+ project containers bootstrap
+    # against one shared Neo4j Community instance simultaneously and all race to
+    # create the same global schema. Vector indexes are still ensured per-container
+    # as a safety net (they depend on the embedding endpoint, which may have been
+    # unavailable at ensure-schema time). Default false keeps standalone/single-unit
+    # deployments working with no external step.
+    schema_managed_externally: bool = False
+
     # ====================
     # Incremental loading (stage 1: metadata TXT/XML)
     # ====================

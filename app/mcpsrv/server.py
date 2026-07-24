@@ -547,10 +547,17 @@ def run_server(skip_startup_incremental: bool = False):
     # incremental уходит в daemon-нить, и MCP endpoint поднимается ниже без
     # ожидания её завершения.
     if skip_startup_incremental:
-        # Full reload / initial load: vector indexes were just reconciled during the
-        # load's create_indexes(); skip the ensure so this inline (pre-MCP) path does
-        # not block on an embedding probe.
-        _start_post_bootstrap_pipeline(last_full_scan_at=None, ensure_vector_indexes=False)
+        # Full reload / initial load: vector indexes were normally just reconciled
+        # during the load's create_indexes(), so we skip the ensure to avoid blocking
+        # this inline (pre-MCP) path on an embedding probe. Exception: when
+        # SCHEMA_MANAGED_EXTERNALLY=true the load deliberately skipped create_indexes()
+        # (schema is pre-created fleet-wide), so vector indexes were NOT created by the
+        # load here — ensure them now as the per-container safety net (the external
+        # ensure-schema step may have run while the embedding endpoint was down).
+        _start_post_bootstrap_pipeline(
+            last_full_scan_at=None,
+            ensure_vector_indexes=settings.schema_managed_externally,
+        )
     else:
         runtime_state.register_startup_task("startup_incremental")
 

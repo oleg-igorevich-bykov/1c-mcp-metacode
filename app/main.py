@@ -1589,18 +1589,72 @@ def _clear_project_cli(project_name: str) -> int:
             pass
 
 
+def _ensure_schema_cli() -> int:
+    """One-off maintenance mode: `python main.py --ensure-schema`.
+
+    Idempotently creates ALL Neo4j constraints/indexes/fulltext (and vector
+    indexes when the embedding endpoint is reachable) as a SINGLE writer, then
+    exits WITHOUT starting the MCP server or loading any metadata.
+
+    Purpose (fleet bootstrap contention fix): the graph schema is global and
+    shared across the whole fleet on one Neo4j Community instance. When ~20+
+    project containers start and load metadata at once, each runs create_indexes()
+    and they deadlock on schema locks (Neo.TransientError.DeadlockDetected,
+    "can't acquire UpdateLock on LABEL"). Running this ONCE before starting the
+    project containers — and setting SCHEMA_MANAGED_EXTERNALLY=true on them so
+    they skip their own create_indexes() — removes that entire contention class;
+    only granular data-write locks remain during the parallel load.
+
+    Run it as a one-off container on the same docker network / .env as the
+    services:
+
+        docker run --rm --network <net> --env-file .env <image> \
+            python main.py --ensure-schema
+
+    Idempotent (all DDL uses IF NOT EXISTS): safe to run repeatedly, e.g. before
+    every fleet apply. Exit code: 0 — success, 1 — connection/DDL failure.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    loader = Neo4jLoader()
+    try:
+        loader.connect()
+        logger.info("Ensuring Neo4j schema (constraints/indexes/fulltext/vector) as single writer...")
+        # use_startup_probe_for_vectors=True: a slow/unreachable embedding endpoint
+        # must not stall the schema init — vector indexes are then created later
+        # per-container (server startup ensure / incremental) once it is reachable.
+        loader.create_indexes(use_startup_probe_for_vectors=True)
+        logger.info("Neo4j schema ensured.")
+        return 0
+    except Exception as e:
+        logger.error("Failed to ensure Neo4j schema: %s", e, exc_info=True)
+        return 1
+    finally:
+        try:
+            loader.close()
+        except Exception:
+            pass
+
+
 def main():
     """Main entry point: auto-load metadata (if needed) and run MCP server.
     All configuration is via environment variables; see config.py and docker-compose.yml.
 
-    Maintenance mode: `python main.py --clear-project <name>` — удалить данные
-    проекта из Neo4j и выйти (см. _clear_project_cli)."""
+    Maintenance modes (parsed before any server bootstrap):
+      `python main.py --clear-project <name>` — удалить данные проекта из Neo4j и выйти.
+      `python main.py --ensure-schema` — один раз создать схему Neo4j и выйти."""
 
     # Maintenance mode: разбирается ДО любого bootstrap'а сервера.
     if "--clear-project" in sys.argv:
         idx = sys.argv.index("--clear-project")
         name = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
         sys.exit(_clear_project_cli(name))
+
+    if "--ensure-schema" in sys.argv:
+        sys.exit(_ensure_schema_cli())
 
     # Установка метода запуска процессов для PyInstaller
     try:
