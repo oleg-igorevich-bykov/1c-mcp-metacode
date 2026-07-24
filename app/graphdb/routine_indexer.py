@@ -16,6 +16,7 @@ from graphdb.embedding_service import (
 )
 from graphdb.embedding_chunks import split_text_for_embedding, weighted_mean_pool
 from graphdb.embedding_text_format import build_embedding_format_spec
+from runtime_memory import trim_process_memory
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,19 @@ class RoutineDescriptionIndexer:
                         f"batch_cost={embedding_metrics.format_cost(*batch.primary_cost())}, "
                         f"cost={embedding_metrics.format_cost(*cum.primary_cost())}, "
                         f"elapsed={elapsed:.1f}s"
+                    )
+                    # Return allocator-retained memory to the OS during the
+                    # multi-hour embedding pass. Safe to call every batch: the
+                    # 30s debounce inside trim_process_memory makes all but ~one
+                    # call per 30s a cheap lock+timestamp check, so this never
+                    # turns into per-batch stop-the-world. Without it, glibc
+                    # fragments over a long run and cgroup memory looks like it
+                    # grows unbounded even though Python objects are freed
+                    # (25.07 kgg/unf-main: 25GiB+ with no trim between the
+                    # metadata-load boundary and this loop's completion).
+                    trim_process_memory(
+                        f"routine description batch (worker {self.worker_id})",
+                        enabled=settings.memory_trim_enabled,
                     )
                 else:
                     # Embedding outage: stop this pass (deferred to the next one).

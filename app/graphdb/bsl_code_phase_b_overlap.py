@@ -42,6 +42,7 @@ from .bsl_code_phase_b_metrics import (
     _ProgressLogger,
 )
 from .embedding_service import is_embedding_unavailable_error
+from runtime_memory import trim_process_memory
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,17 @@ class BslPhaseBOverlapController:
                     continue
                 await self._process_chunk(int(epoch), chunk)
                 self._log_progress(progress)  # item-due after each chunk
+                # Return allocator-retained memory to the OS during the
+                # multi-hour Phase B overlap embedding pass. Unconditional per
+                # chunk is fine: the 30s debounce in trim_process_memory keeps
+                # the actual gc.collect()+malloc_trim(0) to ~once per 30s, the
+                # rest are a cheap lock+timestamp check. Without it, glibc
+                # fragments over the long run and cgroup memory looks unbounded
+                # (25.07 kgg/unf-main incident).
+                trim_process_memory(
+                    "BSL Phase B overlap chunk",
+                    enabled=settings.memory_trim_enabled,
+                )
         finally:
             heartbeat.cancel()
             try:
